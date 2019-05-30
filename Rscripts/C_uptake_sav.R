@@ -209,17 +209,49 @@ hf.day[,aut.carbon.lag.frac:=aut.carbon.lag/GS.pheno.len]
 pheno.v.carbon <- hf.day[,.(unique(spring.carbon.lead.frac),
                             unique(spring.carbon.lead),
                             unique(aut.carbon.lag.frac),
-                            unique(aut.carbon.lag)), by=year]
-uptake.lead.rel <- mean(pheno.v.carbon$V1) ## 19% lead on spring carbon startup
-uptake.lag.rel <- mean(pheno.v.carbon$V3) ## 16% lag on fall carbon shutdown
-uptake.lead <- mean(pheno.v.carbon$V2) ## 28 day lead
-uptake.lag <- mean(pheno.v.carbon$V4) ## 23 day lag
+                            unique(aut.carbon.lag),
+                            unique(GS.carbon.len),
+                            unique(GS.pheno.len)), by=year]
+names(pheno.v.carbon) <- c("year", "spring.lead.frac", "spring.lead",
+                           "aut.lag.frac", "aut.lag", "GS.C.len", "GS.pheno.len")
+uptake.lead.rel <- mean(pheno.v.carbon$spring.lead.frac) ## 19% lead on spring carbon startup
+uptake.lag.rel <- mean(pheno.v.carbon$aut.lag.frac) ## 16% lag on fall carbon shutdown
+uptake.lead <- mean(pheno.v.carbon$spring.lead) ## 28 day lead
+uptake.lag <- mean(pheno.v.carbon$aut.lag) ## 23 day lag
+uptake.lead <- round(uptake.lead, 0)
+uptake.lag <- round(uptake.lag, 0)
+## which is the least noisy signal?
+sd(pheno.v.carbon$spring.lead)/mean(pheno.v.carbon$spring.lead) ## 0.316
+sd(pheno.v.carbon$spring.lead.frac)/mean(pheno.v.carbon$spring.lead.frac) ## 0.333
+sd(pheno.v.carbon$aut.lag)/mean(pheno.v.carbon$aut.lag) ## 0.466
+sd(pheno.v.carbon$aut.lag.frac)/mean(pheno.v.carbon$aut.lag.frac) ## 0.492
+## in both cases you get relatively lower variability in the straight lag/lead mean day count
+
+### is there a relationship between the lead/lag and overall gs length?
+plot(pheno.v.carbon$GS.pheno.len, pheno.v.carbon$spring.lead.frac)
+plot(pheno.v.carbon$GS.pheno.len, pheno.v.carbon$spring.lead)
+summary(lm(spring.lead~GS.pheno.len, data=pheno.v.carbon)) ## not sig
+summary(lm(spring.lead.frac~GS.pheno.len, data=pheno.v.carbon)) ## not sig
+plot(hf.day[,GS.pheno.len], hf.day[, aut.carbon.lag])
+plot(hf.day[,GS.pheno.len], hf.day[, aut.carbon.lag.frac])
+summary(lm(GS.pheno.len~aut.lag.frac, data=pheno.v.carbon)) ## sig!
+summary(lm(GS.pheno.len~aut.lag, data=pheno.v.carbon)) ## sig! about the same
+
 
 yyy <- hf.day[,.(mean(GS.pheno.len),
        mean(GS.carbon.len)), by=year]
 mean(yyy$V1) ## 151 pheno season length
 mean(yyy$V2) ## 203 carbon season length
 ## a whole 51 days of appreciable C uptake is happening outside of phenological GS
+## what could be driving this?
+## 1) Continued tree C assimilation that doesn't appear in bulk spectroscopic signal for canopy
+## 2) Understory that is tougher (up earlier/out later) that has minimal effect on spectrocopic signature
+## 3) lags in timing between spring/autumn Reco rate that are masking the real GPP magnitude of the trees
+### 3 would only really allow you to retard Carbon GS start/stop beyond pheno -- 
+### if Reco is high at shoulders it would look like GPP starts later and shutdown earlier than is really happening
+### at Reco=0 on shoulders, you get a true GPP signal, but not advanced.
+### so the expanded GS start/stop in NEE must be GPP somewhere (overstory or understory) that is not reflected in spectroscopic phenology
+### and anyway we are looking at the 50% of peak Pheno value, so yeah we have a fair bit of greenness prior to peak
 
 #### what fraction of total yearly uptake is taking place in different GS?
 cy <- hf.day[DOY>=carbon.spring & DOY<=carbon.aut, sum(daily.gee), by=year]
@@ -370,7 +402,7 @@ dev.off()
 ### (implying significant temporary biomass loss) or periods when trees are taking in much more C than respiring (implying greater fraction of C uptake going to new biomass).
 ### Assuming trees do not often lose biomass rapidly or much, then the risk here is in sometimes underestimating NPP rate at times when GPP is a lot higher than Rauto 
 ### (GPP usually exceeds Rauto, but Rauto isn't likely to exceed GPP by much for long).
-### 
+### s
 
 ### on integrating phenology- and carbon uptake-based SOS and EOS judgements:
 ### The phenocam dates are most similar to what Eli's gridded SOS/EOS map will detect,
@@ -406,10 +438,8 @@ bos.aut <- mask(bos.aut, mask = bos.aoi)
 bos.spr <- projectRaster(from=spr, to=bos.aoi, method="ngb")
 bos.spr <- crop(bos.spr, bos.aoi)
 bos.spr <- mask(bos.spr, mask = bos.aoi)
-plot(bos.aut)
-plot(bos.spr)
-summary(getValues(bos.aut)) ## median DOY 287
-summary(getValues(bos.spr)) ## median DOY 127
+# summary(getValues(bos.aut)) ## median DOY 287
+# summary(getValues(bos.spr)) ## median DOY 127
 # 287-127+1 ## 161 day growing season length
 
 ### package it up
@@ -418,150 +448,165 @@ names(gee.dat)[1] <- "bos.aoi"
 gee.dat[,pixID:=seq(1:dim(gee.dat)[1])]
 gee.dat[,bos.spr:=getValues(bos.spr)]
 gee.dat[,bos.aut:=getValues(bos.aut)]
-gee.dat[,gs.len:=bos.aut-bos.spr+1]
 gee.dat[,bos.lulc:=getValues(bos.lulc)]
 gee.dat[,bos.can:=getValues(bos.can)]
 gee.dat[,bos.isa:=getValues(bos.isa)]
 gee.dat[,bos.golf:=getValues(bos.golf)]
 gee.dat[,bos.nogolf:=getValues(bos.nogolf)]
+gee.dat[,bos.veg:=bos.can+bos.golf+bos.nogolf]
 gee.dat[,bos.nonimperv:=1-bos.isa]
+gee.dat[, npp.med:=getValues(raster("F:/FragEVI/processed/results/hybrid.V7.median.tif"))]
+load("processed/gs.C.stereo.mod.sav")
+gee.dat[bos.aoi>800 & is.na(npp.med), npp.med:=0]
 
+###
+### phenology day artifact cleanup
+###
 ## correct some pheno cells that didn't retrieve
 spr.med <- gee.dat[bos.aoi>800, median(bos.spr)]
 gee.dat[bos.spr<10, bos.spr:=spr.med]
 aut.med <- gee.dat[bos.aoi>800, median(bos.aut)]
 gee.dat[bos.aut<10, bos.aut:=aut.med]
-# hist(gee.dat[bos.aoi>800, gs.len]); summary(gee.dat[bos.aoi>800, bos.aut]); summary(gee.dat[bos.aoi>800, bos.spr])
-# hist(gee.dat[bos.aoi>800 & bos.spr<100, bos.can]) ## 100 with very early spring, most very low canopy
-# (gee.dat[bos.aoi>800 & bos.aut>310 & bos.can>0.05,]) ## ~900 with very late autumn also containing some canopy,
-# hist(gee.dat[bos.aoi>800, bos.aut]) ## drops off steep at the high end, good
-# ## does our land cover metrics make sense?
-# hist(gee.dat[bos.aoi>800, bos.isa+bos.nonimperv]) ## ok every pixel is 100% with ISA or non-imperv
-# hist(gee.dat[bos.aoi>800, bos.can+bos.golf+bos.nogolf]) ### we are missing paved baren and unpaved barren still
-# gee.dat[bos.aoi]
+gee.dat[,gs.len:=bos.aut-bos.spr+1] ## get an initial gs.length
 
+### correct some pheno cells that appear to have some artifacts
+### it also appears that there are a handful that are retrieving with improbably late spring dates; using July 15 = DOY 196 composite peak C uptake as last possible DOY for start of spring
+# summary(gee.dat[bos.aoi>800, gs.len]) ## some very low but 1st Q is 149, 3rd is 168
+# hist(gee.dat[bos.aoi>800, gs.len]) ## basically longer than 200 or shorter than 100 is real rare
+peak.doy <- 191 ## what is the (uncorrected) apprent composite date of peak C uptake on the map?
+gee.dat[bos.aoi>800 & bos.spr>peak.doy, bos.spr:=spr.med] ## 328 pixels with vegetation + v late SOS; set to median SOS
+gee.dat[bos.aoi>800 & bos.aut<peak.doy, bos.aut:=aut.med] ## 706 pixels with vegetation + very early EOS; set to median EOS
+
+gee.dat[,gs.len:=bos.aut-bos.spr+1] ## reclaculate Gs length
+gee.dat[bos.veg<0.005 & !(npp.med>0), gs.len:=NA] ## elminate gs in pixels have low veg cover and no detectable npp
+gee.dat[bos.veg<0.005 & !(npp.med>0), bos.spr:=NA]
+gee.dat[bos.veg<0.005 & !(npp.med>0), bos.aut:=NA]
+
+
+## how did our cleanup work?
+gee.dat[bos.aoi>800 & gs.len<100,] ## still have 714 pix with vegetation that have very short GS
+summary(gee.dat[bos.aoi>800 & gs.len<100, gs.len]) ## 81-96, but a few very very short
+hist(gee.dat[bos.aoi>800&gs.len<100, gs.len]) ## vast majority are above 80 days
+hist(gee.dat[bos.can>0.01 & bos.aoi>800 & gs.len<100 |
+               bos.golf>0.01 & bos.aoi>800 & gs.len<100 |
+               bos.nogolf>0.01 & bos.aoi>800 & gs.len<100, npp.med])
+summary(gee.dat[bos.can>0.01 & bos.aoi>800 & gs.len<100 |
+                  bos.golf>0.01 & bos.aoi>800 & gs.len<100 |
+                  bos.nogolf>0.01 & bos.aoi>800 & gs.len<100, npp.med]) ## bulk have < 100 kg NPP; 3rd quartile 55 kg NPP
+gee.dat[bos.aoi>800 & is.na(gs.len),] ## 23k get an NA gs length because of low veg cover with no npp
+gee.dat[bos.aoi>800 & is.na(gs.len) & npp.med>0,] ## none of these
+hist(gee.dat[bos.aoi>800, gs.len]); quantile(gee.dat[bos.aoi>800, gs.len], probs=c(0.025, 0.975), na.rm=T) ## 120-193 days this is comforting
+### OK I'm prepared to let these be
+
+### now adjust the SOS and EOS outwards to where you think the carbon year starts/stops based on the HF data
+gee.dat[bos.aoi>800, bos.spr:=bos.spr-uptake.lead] ## move start of C season up by the mean number of lead days we saw at HF
+gee.dat[bos.aoi>800, bos.aut:=bos.aut+uptake.lag] ## move end of C season back by mean number of days seen at HF
+gee.dat[bos.aoi>800, gs.len:=bos.aut-bos.spr+1] ## reclaculate Gs length
+hist(gee.dat[bos.aoi>800, gs.len]); quantile(gee.dat[bos.aoi>800, gs.len], probs=c(0.025, 0.975), na.rm=T) ## 120-193 days this is comforting
+## now we range 171-244, contrast 120-193 by uncorrected phenology GS
+###
+### Now to distribute the annual NPP over the days of each pixel's growing season
+###
+
+## can you do a full 365 day schedule for all 1000 model realizations?
 # npp <- fread("E:/FragEVI/processed/results/hybrid.results.V7.csv")
 # med.na <- function(x){median(x, na.rm=T)}
 # gs.dat[, npp.med:=apply(npp[,7:1006], MARGIN=1, FUN=med.na)]
 # # yr.map <- array(dim = c(dim(npp)[1], 365, 1000)) ## fun fact: this creates an array w 129B cells needing 481GB of memory to use
 
-## bring in npp medians and the spline model for annual growth
-gee.dat[, npp.med:=getValues(raster("F:/FragEVI/processed/results/hybrid.V7.median.tif"))]
-load("processed/gs.C.stereo.mod.sav")
-
-###
-### if I understand the pattern now: 
-## 1) You predict on x of 0-1 with length out = GS length+1 --> this gives you a leading day to judge growing season Day 1 growth against
-## 2) The spline predicts low relative cummulative growth early which ends up looking like 0 or tiny negative for the first few GS days
-## 3) Scaled with pixel total npp, this shows no/low growth early followed by a jump and a ramp; fall is a ramp down followed by a cliff
-## 4) This shape is what happens bc. the stereotype curve is based off a somewhat truncated carbon uptake curve
-## 4b) There is clearly some v early and late C uptake in HF daily data both before and after the official pheno-based SOS and EOS markers
-## 4c) But our calcs only ask it to get a model of relative cumulative daily uptake for the total uptake that takes place between those two markers
-## 5) The upshot is the approach works: we can basically guess at the actual magnitude of uptake inside the marked EOS and SOS days only knowing total season NPP and the GS length
-## 5b) ... but it means that predicted uptake at EOS and SOS is not 0 -- the stereotype curve instead sees you ramping up/down at high/infinity slope in the first/last day...
-## 5c) ... because that's what pace you'd need to fit all the growing season's uptake into the GS days you've got between the EOS and SOS markers
-## 5d) ... that also conforms inside the top-to-bottom amplitude that exists in the stereotyped curve
-## 6) The stereotyped curve doesn't model the very slow early/late season ramp ups and downs because those are outside the SOS/EOS markers
-## 7) Would be nice to know how much additional GS npp is happening in the shoulders -- am I slamming a lot of our map NPP into a too-short window, or is this noise?
-
-### new upgrade: figrue out a baseline (e.g. Jan-Feb) 0 GPP mean
-### then figure where the real consistent dive below this occurrs (the "carbon spring")
-### figure how many days/what fraction of GS this shit occurs; ditto fall vs "carbon fall"
-### adjust season starts to this; develop curve from there
-### basically you believe the phenological cutoffs, or you believe the carbon cutoffs....
-### why not try your approach above on finding spring/fall on the nice/smoothed gee data from HF?
-
-## loop through DOY to get daily pixel npp uptake adjusted for gs.stereo cummulative uptake schedule
-tmp.dat <- copy(gee.dat)
-for(day in 1:365){
-  # tmp.spr <- 110
-  # tmp.aut <- 262
-  # tmp.len <- tmp.aut-tmp.spr+1
-  tmp.dat[,tmp:=0] ## initialize 
-  tmp.dat[,tmp2:=0]
-  tmp.dat[bos.spr<=day & bos.aut>=day, tmp:=npp.med*predict(gs.stereo.C, (day-bos.spr)/gs.len)$y] ## cumulative progress on day
-  tmp.dat[bos.spr<=day & bos.aut>=day, tmp2:=npp.med*predict(gs.stereo.C, (day-bos.spr)/gs.len)$y] ## cumulative progress on day-1
-  # tmp.dat[tmp<0, tmp:=0] ## correct for early phases when shit is getting started and reading negative cumulative progress
-  # tmp.dat[tmp2<0, tmp2:=0]
-  # tmp.dat[tmp>npp.med, tmp:=npp.med] ## correct for late growing season when you might overshoot and read cumulative uptake >1
-  # tmp.dat[tmp2>npp.med, tmp2:=npp.med]
-  tmp.dat[,daily.uptake:=tmp-tmp2] ## i.e. day-of cumulative uptake minus yesterday's cumm uptake
-  tmp.dat[is.na(npp.med), daily.uptake:=NA] ## cleanup
-
-  gs.dat <- cbind(gs.dat, tmp.dat[,daily.uptake])
-  names(gs.dat)[day+9] <- paste0("DOY.", day, ".tree.npp")
-  print(paste("got daily uptake for DOY", day))
+## get daily schedule of median NPP pixel-wise 
+proc <- gee.dat[bos.aoi>800 & !is.na(gs.len) & !is.na(npp.med), pixID] ## about 114k that have vegetation worth worrying about
+day <- 1:365
+npp.sched <- matrix(NA, ncol=365, nrow=length(proc))
+count=1
+for(p in proc){
+  sp <- gee.dat[pixID==p, bos.spr]
+  au <- gee.dat[pixID==p, bos.aut]
+  gsl <- gee.dat[pixID==p, gs.len]+1 ## have to add +1 to give the diff function an extra day in autumm to work with to get the daily fluxs right
+  # on <- predict(gs.stereo.C, (day-sp+1)/gsl) ## the day-of predicted fraction of total NPP done
+  # prev <- predict(gs.stereo.C, (day-sp+0)/gsl) ## yesterday's total fraction of NPP done
+  # prev[sp] <- 0 ## so that we are reading the day before spring's cumulative progress as still 0
+  sched <- diff(predict(gs.stereo.C, (day-sp+1)/gsl))*gee.dat[pixID==p, npp.med] ## we are flubbing in that we never get to exactly 1, but we are close
+  sched <- c(sched, NA) ## our diff move shortens the vectors by 1 but the timings are all in place
+  npp.sched[count,] <- sched
+  if(count%%1000==0){print(paste("finished pixel job", count))}
+  count=count+1
 }
 
-test <- hf.day[year==2009,]
-plot(test[,ann.progress.uptake])
-test[GS_25==1, .(min(DOY), max(DOY))] ## 122, 293
-gs.len <- 293-122+1
-ann.gs.progress <- predict(gs.stereo, seq(0,1, length.out = gs.len+1))
-npp.test.ann <- test[GS_25==1, sum.na(daily.gee.sm)]*(-1)
-npp.daily <- ann.gs.progress$y*npp.test.ann
-plot(test[,ann.progress.uptake])
-plot(npp.daily)
-plot(diff(npp.daily))
-points(test[GS_25==1, daily.gee.sm]*(-1), col="red")  ## yeah it basically (correctly) predicts that uptake at start and end GS are well above 0
-
-plot(hf.day[, DOY], hf.day[, daily.gee.sm], col=as.numeric(as.factor(hf.day[,year])), pch=15, cex=0.6)
-
-
 ## what do the individual pixel uptake curves look like?
-gimme <- gs.dat[npp.med>100,pixID]
-plot(as.numeric(gs.dat[pixID==gimme[1], 10:374]), pch=16, cex=0.4, ylim=c(0,4)) ## a yearly npp uptake curve for a single pixel
-points(as.numeric(gs.dat[pixID==gimme[21], 10:374]), pch=16, cex=0.4, col=2) ## a yearly npp uptake curve for a single pixel
-points(as.numeric(gs.dat[pixID==gimme[34], 10:374]), pch=16, cex=0.4, col=3) ## a yearly npp uptake curve for a single pixel
-points(as.numeric(gs.dat[pixID==gimme[100], 10:374]), pch=16, cex=0.4, col=4) ## a yearly npp uptake curve for a single pixel
-points(as.numeric(gs.dat[pixID==gimme[200], 10:374]), pch=16, cex=0.4, col=5) ## a yearly npp uptake curve for a single pixel
-points(as.numeric(gs.dat[pixID==gimme[2322], 10:374]), pch=16, cex=0.4, col=6) ## a yearly npp uptake curve for a single pixel
-points(as.numeric(gs.dat[pixID==gimme[76], 10:374]), pch=16, cex=0.4, col=7) ## a yearly npp uptake curve for a single pixel
-
-### make sure the pixel daily sums == npp.med 
 sum.na <- function(x){sum(x, na.rm=T)}
-npp.check <- apply(gs.dat[,10:374], FUN=sum.na, MARGIN=1)
-hist(npp.check)
-hist(gs.dat[,npp.med])
-gs.dat[,npp.check:=npp.check]
-hist(gs.dat[,npp.med-npp.check]) ## almost all 0
-summary(gs.dat[,npp.med-npp.check]) ## most are slightly oversupplying npp compared to annual median
-View(gs.dat[(npp.med-npp.check)!=0,]) ## 
-### will assign these map median gs spr and aut dates above
+tots <- apply(npp.sched, MARGIN=1, sum.na) ## this looks like the histogram for median npp
+hist(tots); hist(gee.dat[bos.aoi>800, npp.med])
+par(mar=c(4,4,1,1))
+plot(1:365, npp.sched[996,2:366]/2, ylim=c(0,.85), pch=15, cex=0.6, ylab="Pixel NPP, kgC d-1", xlab="DOY")
+points(1:365, npp.sched[932,2:366]/2, col="blue", pch=15, cex=0.6)
+points(1:365, npp.sched[794,2:366]/2, col="red", pch=15, cex=0.6)
+points(1:365, npp.sched[386,2:366]/2, col="green", pch=15, cex=0.6)
 
-gs.dat[pixID==gimme[21],] ##  why are the transitions are so abrupt?
-plot(as.numeric(gs.dat[pixID==gimme[21], 10:374])) ## everything is starting at about 0.3 kg/day and ending about 0.5... why?
-day=113 ## spr for this pixel; gs length is 186; aut is 298
-day=110:120
-predict(gs.stereo, (day-113+1)/186)$y ## goes from negative to positive day1 to day2
-day.of <- predict(gs.stereo, (day-113+1)/186)$y*gs.dat[pixID==gimme[21],npp.med] ## start making progress day 2
-day.bef <- predict(gs.stereo, (day-113)/186)$y*gs.dat[pixID==gimme[21],npp.med] ## start making progress day 2
-day.of-day.bef
+npp.sched <- cbind(proc, npp.sched, tots)
+npp.sched <- as.data.frame(npp.sched)
+names(npp.sched) <- c("pixID", paste0("NPP.tree.DOY.", 1:365), "sched.total.npp")
+gee.dat <- merge(x=gee.dat, y=npp.sched, by="pixID", all.x=T) 
+write.csv(gee.dat, "processed/npp.sched.DOY.csv")
 
-plot(predict(gs.stereo, seq(0,1, by=0.1))) ## this has something to do with the shoulders...
-### NPP on spr-1 is 0, then right into day 1 uptake on spr-0
-plot(predict(gs.stereo, seq(0,1, length.out=186)))
-## first off, start the scheduler the day before so you can allocate day 1 to day 1
-gs.len=186
-doy.spr=113
-doy.aut=298
-s <- predict(gs.stereo, seq(0,1, length.out=gs.len+2))
-plot(s$x, s$y)
-diff(seq(0,1, length.out=gs.len+2))
-## now groom this schedule to get rid of out of spec
-# s$y[s$y>1] <- 1
-# s$y[s$y<0] <- 0
-plot(s$y[1:80])
-## spr-0 uptake
-npp.gim <- 264 ## example annual npp
-cumday <- s$y*npp.gim
-plot(cumday)
-diff(cumday)
-plot(diff(cumday))
-sum(diff(cumday)[2:186]) ## this is close to correct total-wise but it just starts fast and ends abruptly
-## this is what you'd expect if the cumulative progress was for TOTAL ANNUAL uptake from the EC data
-## the RS-based pheno dates cut the shoulders of the uptake curves off -- i.e. uptake is already/still pretty strong at the SOS and EOS 
-## the taper isn't happening because that gets cut off by the pheno dates
+gee.dat <- as.data.table(read.csv("processed/npp.sched.DOY.csv"))
+plot(gee.dat[bos.aoi>800, npp.med], gee.dat[bos.aoi>800, sched.total.npp])
+abline(a=0, b=1) ## looks good
+hist(gee.dat[bos.aoi>800, npp.med-sched.total.npp]) ## everyone's within 2 kg
+hist(gee.dat[bos.aoi>800 & npp.med-sched.total.npp>=1.5, bos.can]) ## the ones that miss a lot are already high canopy/high npp
+hist(gee.dat[bos.aoi>800 & npp.med-sched.total.npp>=1.5, npp.med]) ## really it's just the few hundred that have over 600kg npp
+hist(gee.dat[bos.aoi>800, (npp.med-sched.total.npp)/npp.med]) ## nearly all are within 0.3% of npp total ## Acceptable!
+
+### annual uptake curve map composite
+doy.tot <- apply(gee.dat[bos.aoi>800, 14:378], MARGIN=2, FUN = sum.na)
+### note this is a bit off the median MAP SUM -- this is the sum of median pixel values.
+png(filename = "images/AOI_NPP.png", width = 8, height = 6, units = "in", res = 300)
+plot(doy.tot/2000, pch=15, col="grey60", cex=0.6, xlab="DOY", ylab="NPP, MgC d-1") ## looks a lot like the sterotype curve
+dev.off()
+sum(doy.tot/2000) ## 9457 tC yr-1
+gee.dat[bos.aoi>800, sum(npp.med, na.rm=T)/2000] # 9483 tC yr-1 -- the usual decrease
+(gee.dat[bos.aoi>800, sum(npp.med, na.rm=T)]-sum(doy.tot, na.rm=T))/gee.dat[bos.aoi>800, sum(npp.med, na.rm=T)] ## integrated total is within 0.3% of total
+length(doy.tot)
+which(doy.tot==max(doy.tot, na.rm=T)) ## peak at DOY 191 = July 10
+abline(v=191, col="red")
+gee.dat[bos.aoi>800, median(bos.spr, na.rm=T)] ## median spring start DOY 98 = April 8
+# abline(v=gee.dat[bos.aoi>800 & bos.veg>0.005, unique(bos.spr)], col="gray60")
+abline(v=98, col="lightgreen") ## we are getting uptake prior to this, like C-year based schedule would predict
+gee.dat[bos.aoi>800, median(bos.aut, na.rm=T)] ## DOY 311 = Nov 7
+abline(v=311, col="orange") ## still getting uptake after, also like C-year based schedule would predict
+hist(gee.dat[bos.aoi>800, bos.spr]) ## most between 80 and 120
+
+
+## individual pixel uptake, sink strength as MgC/ha/yr
+png(filename = "images/pixel_NPP_DOY_MgChayr.png", width = 8, height = 6, units = "in", res = 300)
+plot(1:365,
+     365*gee.dat[bos.aoi>800 & npp.med>200 & npp.med<201, 14:378][1]/(2000*gee.dat[bos.aoi>800 & npp.med>200 & npp.med<201, bos.aoi/1E4][1]),
+     pch=16, cex=0.6, xlab="DOY", ylab="Pixel NPP strength, MgC ha-1 yr-1", ylim=c(0,10))
+points(1:365,
+     365*gee.dat[bos.aoi>800 & npp.med>400 & npp.med<405, 14:378][1]/(2000*gee.dat[bos.aoi>800 & npp.med>400 & npp.med<405, bos.aoi/1E4][1]),
+     pch=16, cex=0.6, col="blue")
+points(1:365,
+       365*gee.dat[bos.aoi>800 & npp.med>600 & npp.med<605, 14:378][1]/(2000*gee.dat[bos.aoi>800 & npp.med>600 & npp.med<605, bos.aoi/1E4][1]),
+       pch=16, cex=0.6, col="red")
+points(1:365,
+       365*gee.dat[bos.aoi>800 & npp.med>50 & npp.med<55, 14:378][1]/(2000*gee.dat[bos.aoi>800 & npp.med>50 & npp.med<55, bos.aoi/1E4][1]),
+       pch=16, cex=0.6, col="green")
+legend(x=10, y=8, 
+       legend = c("800 kg/yr",
+                             "600 kg/yr",
+                             "400 kg/yr",
+                             "50 kg/yr"),
+       fill=c("red", "blue", "black", "green"), bty="n")
+dev.off()
+
+## ok -- great. This is a result. This is the daily drawdown pump strength (trees only!). I think the last thing to do will be scale this up a little bit to offset whatever cumulative dormant Ra is withdrawing
+## here's where it could differ a lot from other predictions: VPRM predicts photosynthesis shutdown when temps get too high. They probably get too high a lot in places in Boston, more than happens at HF
+## so there's a UHI nexus to this that is not modeled just by treating uptake as if it follows a schedule defined by a system that is probably less often in heat shutdown
+## but we DID account for the fact that the UHI is giving us a *longer* growing season -- this means we are possibly underpredicting in early/late season but overpredicting mid-season in places that get hella hot
+## and we still stand by the integrated annual total NPP in each pixel -- we just might be getting the timing wrong, specifically as it relates to UHI both helping and hurting us
+
+## next up: Grass; dormant Ra loss
+
 
 ###
 ### AIR TEMP W UHI EFFECT
