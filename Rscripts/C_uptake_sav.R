@@ -402,7 +402,7 @@ dev.off()
 ### (implying significant temporary biomass loss) or periods when trees are taking in much more C than respiring (implying greater fraction of C uptake going to new biomass).
 ### Assuming trees do not often lose biomass rapidly or much, then the risk here is in sometimes underestimating NPP rate at times when GPP is a lot higher than Rauto 
 ### (GPP usually exceeds Rauto, but Rauto isn't likely to exceed GPP by much for long).
-### s
+### 
 
 ### on integrating phenology- and carbon uptake-based SOS and EOS judgements:
 ### The phenocam dates are most similar to what Eli's gridded SOS/EOS map will detect,
