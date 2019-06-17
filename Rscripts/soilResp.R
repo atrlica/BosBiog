@@ -163,27 +163,27 @@ writeRaster(bos.biom, filename="processed/boston/bos.biom.tif", format="GTiff", 
 # print(paste("ArcPy working on NDVI resample: ", output))
 
 
-### V4 cover mapping: canopy underlayer, Uses re-registered ISA layer + unsmoothed canopy layer
+### V5 cover mapping: Uses re-registered ISA layer + unsmoothed canopy layer, further split by LULC and diagnostic misses mapped
 # bos.isa <- raster("processed/boston/isa.reg-res2.tif")
 bos.ndvi <- raster("processed/bos.ndvi.tif")
 bos.can <- raster("processed/bos.can.redux.tif")
 bos.lulc <- raster("processed/bos.lulc.lumped.tif")
 bos.aoi <- raster("processed/bos.aoi.tif")
 bos.isa <- raster("processed/bos.isa.RR2.tif")
-
 # crs(bos.isa); extent(bos.isa)
 # crs(bos.ndvi); extent(bos.ndvi)
 # crs(bos.can); extent(bos.can)
 # crs(bos.lulc); extent(bos.lulc)
 # crs(bos.aoi); extent(bos.aoi) ## we good
 
-
 ### THIS VERSION spits out 6 class raster, splits canopy according to position over impervious vs. pervious
 ## then flags each class by its lulc membership
-veg.class <- function(can, isa, ndvi, lulc, aoi, filename) {
+## then flags pixels that fail to classify
+veg.class <- function(can, isa, ndvi, lulc, aoi, filename.cov, filename.miss) {
   out <- raster(can)
   bs <- blockSize(out)
-  out <- writeStart(out, filename, overwrite=TRUE, format="GTiff")
+  out <- writeStart(out, filename.cov, overwrite=TRUE, format="GTiff")
+  miss <- writeStart(out, filename.miss, overwrite=TRUE, format="GTiff")
   for (i in 1:bs$n) {
     target <- getValues(aoi, row=bs$row[i], nrows=bs$nrows[i]) ## dummy raster chunk
     check <- getValues(aoi, row=bs$row[i], nrows=bs$nrows[i]) 
@@ -208,14 +208,28 @@ veg.class <- function(can, isa, ndvi, lulc, aoi, filename) {
       target[target==g & z==5] <- (5*10)+g 
       target[target==g & z==6] <- (6*10)+g 
     }  
+    ## check which pixles have LULC but no cover
+    miss.val <- z
+    miss.val[!is.na(miss.val)] <- 0
+    miss.val[miss.val==0 & is.na(target)] <- 1
+    
+    ## write final rasters out
+    miss <- writeValues(miss, miss.val, bs$row[i])
     out <- writeValues(out, target, bs$row[i])
     print(paste("finished block", i, "of", bs$n))
   }
   out <- writeStop(out)
+  miss <- writeStop(miss)
   return(out)
+  return(miss)
 }
-cl <- veg.class(bos.can, bos.isa, bos.ndvi, bos.lulc, bos.aoi, "processed/bos.cov.V5-canisa+lulc.tif")
-plot(cl)
+veg.class(bos.can, bos.isa, bos.ndvi, bos.lulc, bos.aoi, 
+                "processed/bos.cov.V5-canisa+lulc.tif",
+                "processed/bos.cov.V5-missed.tif")
+### the missed pixels are all marginal where AOI=1 but no LULC
+## there are no holes in cover layer, most minimal map is where you have aoi+LULC+cover --> valid
+
+
 # 
 # ## make a grass and barren only 1m layer
 # bos.cov <- stack("processed/boston/bos.cov.V4-canisa.tif")
@@ -321,8 +335,9 @@ lulc.cov.count <- function(x, a, l) { # x is cov*lulc, a is aoi, l is lulc lumpe
 
 cov.frac <- lulc.cov.count(bos.cov, bos.aoi, bos.lulc)
 
+## cover classes are 1 water 2 grass 3 nonveg perv 4 nonveg imperv 5 can+imperv 6 can+perv
 cov.frac <- cbind(c("Forest", "Dev", "HDRes", "LDRes", "OVeg", "Water"), cov.frac)
-colnames(cov.frac) <- c("LULC", "Water", "Grass", "Barren", "Imperv", "Can+Imperv", "Can+Perv", 
+colnames(cov.frac) <- c("LULC", "Water", "Grass", "Nonveg+Perv", "Nonveg+Imperv", "Can+Imperv", "Can+Perv", 
                         "ValidAOI+LULC", "ValidLULC", "ValidAOI", "ValidLULCxcover")
 # cov.frac[,2:8] <- as.numeric(as.character(cov.frac[,2:8]))
 cov.frac$CovTotal <- apply(cov.frac[,2:7], MARGIN = 1, FUN = sum)
@@ -332,20 +347,36 @@ sum(cov.frac$CovTotal)/1E4 ## 12,229 ha has a cov+LULC
 sum(cov.frac$`ValidAOI+LULC`)/1E4 ## 12,414 ha have AOI+LULC
 sum(cov.frac$ValidLULC)/1E4 ## 12,414 ha have LULC
 cov.frac$ValidAOI[1]/1E4 ## 12,455 ha in AOI
-cov.frac$ValidLULCxcover[1]/1E4 ## 12,229 ha have cov+LULC
+cov.frac$ValidLULCxcover[1]/1E4 ## 12,229 ha same as total cov+LULC
 ## OK so there are AOI pixels that never got LULC
 12414/12455 ## about 0.3% of pixels have no LULC
 ## of pixels that have LULC, some don't have an associated cov
 12229/12414 ## about 1.5% of LULC don't have a cover class
 ## we should find out where our cover classes fell down
 
-## fractional area (rough)
+## fractional area (judged by most restrictive pixel set -->valid!)
 cov.frac[1,2:7]/cov.frac$CovTotal[1] ## forest, 2% barren, 12% grass, 5% imperv, 78% can+perv
 cov.frac[2,2:7]/cov.frac$CovTotal[2] ## Dev, 5% grass, 9% barren, 75% imperv, 7% can+perv
-sum((cov.frac[2,c(2,3,4,7)]/cov.frac$CovTotal[2]))+
-  sum((cov.frac[2,c(5)]/cov.frac$CovTotal[2])) ## we are missing area -- pervious + impervious doesn't add to 1
 cov.frac[3,2:7]/cov.frac$CovTotal[3] ## HDres, 9% grass, 10% barren, 51% imperv, 20% can+imperv
 cov.frac[4,2:7]/cov.frac$CovTotal[4] ## LDres, 17% grass, 12% barren, 26% imperv, 38% can+imperv
 cov.frac[5,2:7]/cov.frac$CovTotal[5] ## OVeg, 43% grass, 18% barren, 18% imperv, 17% can+imperv
-cov.frac[6,2:7]/cov.frac$CovTotal[6] ## water,79% water, 7% grass, 0% barren, 3% imperv, 10% can+imperv
+cov.frac[6,2:7]/cov.frac$CovTotal[6] ## water, 79% water, 7% grass, 0% barren, 3% imperv, 10% can+imperv
+
+## do things add up?
+perv <- apply(cov.frac[,c(2,3,4,7)], MARGIN=1, FUN=sum)/cov.frac$CovTotal
+imperv <- apply(cov.frac[,c(5,6)], MARGIN=1, FUN=sum)/cov.frac$CovTotal
+perv+imperv ## excellent -- everything lines up 
+
+## OK final tally
+cov.frac[1,2:7]/cov.frac$CovTotal[1] ## forest, 0 water, 2% barren, 12% grass, 5% noveg+imperv, 4% can+imperv, 78% can+perv
+cov.frac[2,2:7]/cov.frac$CovTotal[2] ## Dev, 0 water 5% grass, 9% barren, 75% nonveg+imperv, 4% can+imperv, 7% can+perv
+cov.frac[3,2:7]/cov.frac$CovTotal[3] ## HDres, 0 water, 9% grass, 10% barren, 51% nonveg+imperv, 10% can+imperv, 20% can+perv
+cov.frac[4,2:7]/cov.frac$CovTotal[4] ## LDres, 0 water, 17% grass, 12% barren, 26% nonveg+imperv, 7% can+imperv, 38% can+perv 
+cov.frac[5,2:7]/cov.frac$CovTotal[5] ## OVeg, 0 water, 43% grass, 18% barren, 18% nonveg+imperv, 3% can+imperv, 17% can+imperv
+cov.frac[6,2:7]/cov.frac$CovTotal[6] ## water, 79% water, 7% grass, 0% barren, 3% nonveg+imperv, 0.1% can+imperv, 11% can+perv
+## how does this compare to the fractions Decina used?
+
+
+
+
 
