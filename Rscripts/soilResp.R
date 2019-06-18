@@ -229,6 +229,73 @@ veg.class(bos.can, bos.isa, bos.ndvi, bos.lulc, bos.aoi,
 ### the missed pixels are all marginal where AOI=1 but no LULC
 ## there are no holes in cover layer, most minimal map is where you have aoi+LULC+cover --> valid
 
+##
+### now we need 1m layers that are flagged for the pervious classses we will model for Rsoil
+## feed this the Cover v5 layer
+flag.n.bag <- function(cov, lulc, aoi, filename.flag) { ## give filename.flag as the generic path-- this will create multiple rasters
+  ### do forest first
+  print(paste("working on Forest pervious"))
+  lulc.names <- c("Forest")
+  for(a in 1:length(lulc.names)){
+    out <- raster(cov)
+    bs <- blockSize(out)
+    out <- writeStart(out, paste0(filename.flag, ".", lulc.names[a], "perv.tif"), overwrite=TRUE, format="GTiff")
+    for (i in 1:bs$n) {
+      target <- getValues(cov, row=bs$row[i], nrows=bs$nrows[i]) ## dummy raster chunk
+      target <- rep(NA, length(target)) 
+      c <- getValues(cov, row=bs$row[i], nrows=bs$nrows[i])
+      z <- getValues(lulc, row=bs$row[i], nrows=bs$nrows[i]) ## lulc
+      t <- getValues(aoi, row=bs$row[i], nrows=bs$nrows[i]) ## aoi
+      target[z==a & c%%10%in%c(2,3,6)] <- 1 ## flag anything with grass, barren, or pervious under canopy
+      target[is.na(t)] <- NA ## cancel values out of AOI
+      ## write final rasters out
+      out <- writeValues(out, target, bs$row[i])
+      print(paste("finished block", i, "of", bs$n))
+    }
+    out <- writeStop(out)
+    # return(out)
+  }
+
+  ## now do subclasses of the rest (also fuck water)
+  lulc.names <- c("Forest", "Dev", "HDRes", "LDRes", "OVeg")
+  cov.names <- c("grass", "barr", "canPerv")
+  cov.codes <- c(2,3,6)
+  for(a in 2:length(lulc.names)){ ## loop each LULC in turn
+    print(paste("working on pervious cover in", lulc.names[a]))
+    for(b in 1:length(cov.codes)){ ## handle each pervious cover class separately
+      out <- raster(cov)
+      bs <- blockSize(out)
+      out <- writeStart(out, paste0(filename.flag, ".", lulc.names[a], "-", cov.names[b], ".tif"), overwrite=TRUE, format="GTiff")
+      print(paste("working on cover", cov.names[b]))
+      for (i in 1:bs$n) {
+        target <- getValues(cov, row=bs$row[i], nrows=bs$nrows[i]) ## dummy raster chunk
+        target <- rep(NA, length(target)) 
+        c <- getValues(cov, row=bs$row[i], nrows=bs$nrows[i])
+        z <- getValues(lulc, row=bs$row[i], nrows=bs$nrows[i]) ## lulc
+        t <- getValues(aoi, row=bs$row[i], nrows=bs$nrows[i]) ## aoi
+        target[z==a & c%%10==cov.codes[b]] <- 1 ## flag this specific cover type
+        target[is.na(t)] <- NA ## cancel values out of AOI
+        ## write final rasters out
+        out <- writeValues(out, target, bs$row[i])
+        print(paste("finished block", i, "of", bs$n))
+      }
+      out <- writeStop(out)
+      # return(out)
+    } 
+  }
+}
+
+## run the flag code to get a 1/0 flag for each pervious lulc*cover type
+bos.ndvi <- raster("processed/bos.ndvi.tif")
+bos.can <- raster("processed/bos.can.redux.tif")
+bos.lulc <- raster("processed/bos.lulc.lumped.tif")
+bos.aoi <- raster("processed/bos.aoi.tif")
+bos.isa <- raster("processed/bos.isa.RR2.tif")
+bos.cov <- raster("processed/bos.cov.V5-canisa+lulc.tif")
+
+flag.n.bag(bos.cov, bos.lulc, bos.aoi, "processed/bos.cov")
+
+
 
 # 
 # ## make a grass and barren only 1m layer
@@ -289,6 +356,7 @@ veg.class(bos.can, bos.isa, bos.ndvi, bos.lulc, bos.aoi,
 
 
 ### Cover area for each LULC in bulk
+#####
 bos.cov <- raster("processed/bos.cov.V5-canisa+lulc.tif")
 bos.aoi <- raster("processed/bos.aoi.tif")
 bos.lulc <- raster("processed/bos.lulc.lumped.tif")
@@ -360,7 +428,7 @@ cov.frac[2,2:7]/cov.frac$CovTotal[2] ## Dev, 5% grass, 9% barren, 75% imperv, 7%
 cov.frac[3,2:7]/cov.frac$CovTotal[3] ## HDres, 9% grass, 10% barren, 51% imperv, 20% can+imperv
 cov.frac[4,2:7]/cov.frac$CovTotal[4] ## LDres, 17% grass, 12% barren, 26% imperv, 38% can+imperv
 cov.frac[5,2:7]/cov.frac$CovTotal[5] ## OVeg, 43% grass, 18% barren, 18% imperv, 17% can+imperv
-cov.frac[6,2:7]/cov.frac$CovTotal[6] ## water, 79% water, 7% grass, 0% barren, 3% imperv, 10% can+imperv
+cov.frac[6,2:7]/cov.frac$CovTotal[6] ## water, 79% water, 7% grass, 0% barren, 3% imperv, 10% can+perv
 
 ## do things add up?
 perv <- apply(cov.frac[,c(2,3,4,7)], MARGIN=1, FUN=sum)/cov.frac$CovTotal
@@ -375,8 +443,97 @@ cov.frac[4,2:7]/cov.frac$CovTotal[4] ## LDres, 0 water, 17% grass, 12% barren, 2
 cov.frac[5,2:7]/cov.frac$CovTotal[5] ## OVeg, 0 water, 43% grass, 18% barren, 18% nonveg+imperv, 3% can+imperv, 17% can+imperv
 cov.frac[6,2:7]/cov.frac$CovTotal[6] ## water, 79% water, 7% grass, 0% barren, 3% nonveg+imperv, 0.1% can+imperv, 11% can+perv
 ## how does this compare to the fractions Decina used?
+perv.tot <- apply(cov.frac[,c(2,3,4,7)], MARGIN=1, FUN=sum)
+perv.frac <- numeric()
+for(i in 1:6){
+  perv.frac <- rbind(perv.frac, cov.frac[i,c(2,3,4,7)]/perv.tot[i])
+}
+apply(perv.frac, MARGIN=1, FUN=sum)
+cbind(c("Forest", "Dev", "HDRes", "LDRes", "OVeg", "Water"), perv.frac)
+#####
 
 
+### aggregate cover area to working 30m grid
+#####
+
+### in-R method is unacceptably crappy
+# test <- raster("processed/bos.cov.Dev-grass.tif")
+# plot(test)
+# grid <- raster("H:/FragEVI/processed/boston/bos.can30m.tif")
+# sum.na <- function(x){sum(x, na.rm=T)}
+# test30m <- aggregate(test, fact=30, fun=sum, na.rm=T, expand=T, filename="processed/bos.test30m.tif")
+# plot(test30m)
+# test30m.res <- resample(test30m, grid, method="bilinear", filename="processed/bos.test30m.res.tif")
+### the resample step produces some pretty serious divergence from a manual aggregate+snap to grid in Arcmap
+
+### just run bos1m_agg.py in H:/BosBiog/Rscripts, my dude. It's all set upt
+#####
+
+
+### collate cover areas and apply growing-season soil Resp factors
+library(raster)
+library(data.table)
+library(qdapRegex)
+bos.aoi <- raster("H:/FragEVI/processed/boston/bos.aoi30m.tif")
+bos.isa <- raster("H:/FragEVI/processed/boston/bos.isa30m.tif") ## this is reprocessed from the RR2 1m file that was reregistered to road centerlines
+
+soilR.dat <- as.data.table(as.data.frame(bos.aoi))
+soilR.dat[,isa:=getValues(bos.isa)]
+soilR.dat[,isa:=isa*bos.aoi30m]
+hist(soilR.dat[,isa]) ## ok
+## load up the 30m cover files and append
+cov.files <- list.files("processed/")
+cov.files <- cov.files[grep(cov.files, pattern = "bos.cov.")]
+cov.files <- cov.files[grep(cov.files, pattern = ".tif")]
+cov.files <- cov.files[grep(cov.files, pattern = "30m")]
+cov.files <- cov.files[!grepl(cov.files, pattern = ".tif.")]
+cov.labs <- unlist(rm_between(cov.files, ".cov.", "30m.tif", extract=T))
+for(g in 1:length(cov.files)){
+  soilR.dat <- cbind(soilR.dat, getValues(raster(paste0("processed/", cov.files[g]))))
+}
+names(soilR.dat) <- c("aoi", "isa", cov.labs)
+
+## test to see if the data integrity is good
+sum.na <- function(x){sum(x, na.rm=T)}
+perv <- apply(soilR.dat[, 3:16], MARGIN=1, FUN=sum.na)
+hist(perv); hist(soilR.dat[,isa])
+tot <- perv+soilR.dat[,isa]
+hist(tot) ## close to perfect coverage but not complete... some strangeness
+hist(soilR.dat[,aoi])
+covDisc <- soilR.dat[,aoi]-tot  
+summary(covDisc); hist(covDisc) ## mostly 0 but some discrepencies up to +- 900 in either direction
+soilR.dat[, pervTotal:=perv]
+soilR.dat[, pervISATotal:=pervTotal+isa]
+soilR.dat[, TotVsAOI:=aoi-pervISATotal]
+hist(soilR.dat[,TotVsAOI]); summary(soilR.dat[,TotVsAOI]) ## most are very close to 0 but go up to +-500
+hist(soilR.dat[!(is.na(aoi)),TotVsAOI]); summary(soilR.dat[!(is.na(aoi)),TotVsAOI]) ## Ok let's see what these are
+
+## the ones that undershoot
+View(soilR.dat[!is.na(aoi) & TotVsAOI<0,]) ## vast majority are fuggin tiny below 1
+summary(soilR.dat[!is.na(aoi) & TotVsAOI<(-0.5), TotVsAOI]) ## some bigguns
+length(soilR.dat[!is.na(aoi) & TotVsAOI<(-0.5), TotVsAOI]) ## only 636 pixels that fuck up below
+View(soilR.dat[!is.na(aoi) & TotVsAOI<(-3),]) ## 556 well below
+View(soilR.dat[!is.na(aoi) & TotVsAOI<(-3) & aoi>800,]) ## 396 complete pixels that well undershoot
+summary(soilR.dat[!is.na(aoi) & TotVsAOI<(-0.5) & water>100, aoi]) ## most of the big fuckups are full pixels
+(soilR.dat[!is.na(aoi) & TotVsAOI<(-0.5) & water>100, length(aoi)]) ## ok 449 complete pixels with a bit of water get an undershoot
+
+## the ones that overshoot
+View(soilR.dat[!is.na(aoi) & TotVsAOI>0,]) ## again vast majority are fuggin tiny below 1
+summary(soilR.dat[!is.na(aoi) & TotVsAOI>(0.5), TotVsAOI]) ## ## ok some are big divergences
+hist(soilR.dat[!is.na(aoi) & TotVsAOI>(0.5), TotVsAOI]); length(soilR.dat[!is.na(aoi) & TotVsAOI>(0.5), TotVsAOI]) ## about 4.8k dum dums
+hist(soilR.dat[!is.na(aoi) & TotVsAOI>(0.5) & aoi>800, TotVsAOI]); length(soilR.dat[!is.na(aoi) & TotVsAOI>(0.5) &aoi>800, TotVsAOI]) ## still 2.1k in complete cells
+hist(soilR.dat[!is.na(aoi) & TotVsAOI>(3), TotVsAOI]); length(soilR.dat[!is.na(aoi) & TotVsAOI>(3), TotVsAOI]) ## about 4.5k real dum dums
+hist(soilR.dat[!is.na(aoi) & TotVsAOI>(3) & aoi>800, TotVsAOI]); length(soilR.dat[!is.na(aoi) & TotVsAOI>(3) &aoi>800, TotVsAOI]) ## still 1.9k in complete cells
+summary(soilR.dat[!is.na(aoi) & TotVsAOI>(3) & water>100, aoi]) ## most big fuckups with water are complete pixels
+(soilR.dat[!is.na(aoi) & TotVsAOI>(3) & water>100, length(aoi)]) ## ok 379 with water are big fuckups
+
+### adding water has created some pixels where there's a fair amount of full AOI pixels where isa+pervious+water is well below AOI area
+
+## I suspect we need water up in this beeitch
+## water from above is 79% water, 7% grass, and 11% can+pervious -- but we don't know if the "pervious" is water or soil
+## this is an extremely marginal case -- we are looking at perhaps 17 ha of grass*water and max of 24 ha of canopy+pervious (some fraction of which is likely over water)
+## This represents at most 0.4% of the total study area or 0.8% of the total pervious area
+## For draft pass, we will treat any LULC of "water" as if it were just water even if we saw canopy or grass at the location
 
 
 
