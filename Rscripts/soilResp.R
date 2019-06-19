@@ -476,11 +476,14 @@ library(data.table)
 library(qdapRegex)
 bos.aoi <- raster("H:/FragEVI/processed/boston/bos.aoi30m.tif")
 bos.isa <- raster("H:/FragEVI/processed/boston/bos.isa30m.tif") ## this is reprocessed from the RR2 1m file that was reregistered to road centerlines
+bos.lulc <- raster("H:/FragEVI/processed/boston/bos.lulc30m.lumped.tif")
 
 soilR.dat <- as.data.table(as.data.frame(bos.aoi))
 soilR.dat[,isa:=getValues(bos.isa)]
 soilR.dat[,isa:=isa*bos.aoi30m]
-hist(soilR.dat[,isa]) ## ok
+# hist(soilR.dat[,isa]) ## ok
+soilR.dat[,lulc.lump:=getValues(bos.lulc)]
+
 ## load up the 30m cover files and append
 cov.files <- list.files("processed/")
 cov.files <- cov.files[grep(cov.files, pattern = "bos.cov.")]
@@ -488,17 +491,64 @@ cov.files <- cov.files[grep(cov.files, pattern = ".tif")]
 cov.files <- cov.files[grep(cov.files, pattern = "30m")]
 cov.files <- cov.files[!grepl(cov.files, pattern = ".tif.")]
 cov.labs <- unlist(rm_between(cov.files, ".cov.", "30m.tif", extract=T))
+cov.labs <- sub(cov.labs,pattern = "-", replacement = ".")
 for(g in 1:length(cov.files)){
   soilR.dat <- cbind(soilR.dat, getValues(raster(paste0("processed/", cov.files[g]))))
 }
-names(soilR.dat) <- c("aoi", "isa", cov.labs)
+names(soilR.dat) <- c("aoi", "isa", "lulc.lump", cov.labs)
 
+###
 ## test to see if the data integrity is good
 sum.na <- function(x){sum(x, na.rm=T)}
-perv <- apply(soilR.dat[, 3:16], MARGIN=1, FUN=sum.na)
+# soilR.dat[,pix.TotArea:=sum.na(Forestperv)+
+#             sum.na(Dev.barr)+sum.na(Dev.grass)+sum.na(Dev.canPerv)+
+#             sum.na(HDRes.barr)+sum.na(HDRes.grass)+sum.na(HDRes.canPerv)+
+#             sum.na(LDRes.barr)+sum.na(LDRes.grass)+sum.na(LDRes.canPerv)+
+#             sum.na(OVeg.barr)+sum.na(OVeg.grass)+sum.na(OVeg.canPerv)+
+#             sum.na(water)+
+#             sum.na(isa)]
+# summary(soilR.dat[,pix.TotArea]) ## this doesn't fucking work
+# 
+# soilR.dat[,pix.TotArea:=sum.na(Forestperv+
+#                                  Dev.barr+Dev.grass+Dev.canPerv+
+#                                  HDRes.barr+HDRes.canPerv+HDRes.grass+
+#                                  LDRes.barr+LDRes.canPerv+LDRes.grass+
+#                                  OVeg.barr+OVeg.canPerv+OVeg.grass+
+#                                  water+isa)]
+# summary(soilR.dat[,pix.TotArea]) ## also doesn't fucking work
+# View(soilR.dat[aoi>800,])
+# soilR.dat2 <- as.data.frame(soilR.dat)
+# soilR.dat[,pix.TotArea:=apply(soilR.dat2[,c(2, 4:17)], MARGIN = 1, FUN=sum.na)]
+# hist(soilR.dat$pix.TotArea)
+# hist(apply(soilR.dat[, c(2,4:17)], MARGIN = 1, FUN=sum.na)) ## ok we can do it direct
+soilR.dat[,pix.TotArea:=apply(soilR.dat[,c(2, 4:17)], MARGIN = 1, FUN=sum.na)]
+summary(soilR.dat$pix.TotArea) ## ok this at least gives us what looks like something
+plot(soilR.dat[aoi>800, aoi], soilR.dat[aoi>800, pix.TotArea]) ### OK WHOOOOLLLLEEE lot of fuckery here
+
+## ... sigh... fucking fine.
+# class(soilR.dat$aoi)
+# class(soilR.dat$isa)
+# class(soilR.dat$lulc.lump)
+# class(soilR.dat$Dev.barr)
+# class(soilR.dat$Dev.canPerv)
+# class(soilR.dat$Dev.grass)
+# class(soilR.dat$Forestperv)
+# class(soilR.dat$HDRes.barr)
+# class(soilR.dat$HDRes.canPerv)
+# class(soilR.dat$HDRes.grass)
+# class(soilR.dat$LDRes.barr)
+# class(soilR.dat$LDRes.canPerv)
+# class(soilR.dat$LDRes.grass)
+# class(soilR.dat$OVeg.barr)
+# class(soilR.dat$OVeg.canPerv)
+# class(soilR.dat$OVeg.grass)
+# class(soilR.dat$water)
+# class(soilR.dat$pix.TotArea)
+
+perv <- apply(soilR.dat[, 4:17], MARGIN=1, FUN=sum.na)
 hist(perv); hist(soilR.dat[,isa])
 tot <- perv+soilR.dat[,isa]
-hist(tot) ## close to perfect coverage but not complete... some strangeness
+hist(tot) ## most get near to perfect coverage but not complete... some strangeness
 hist(soilR.dat[,aoi])
 covDisc <- soilR.dat[,aoi]-tot  
 summary(covDisc); hist(covDisc) ## mostly 0 but some discrepencies up to +- 900 in either direction
@@ -527,6 +577,9 @@ hist(soilR.dat[!is.na(aoi) & TotVsAOI>(3) & aoi>800, TotVsAOI]); length(soilR.da
 summary(soilR.dat[!is.na(aoi) & TotVsAOI>(3) & water>100, aoi]) ## most big fuckups with water are complete pixels
 (soilR.dat[!is.na(aoi) & TotVsAOI>(3) & water>100, length(aoi)]) ## ok 379 with water are big fuckups
 
+## in conclusion
+hist(soilR.dat[!is.na(aoi) & aoi>800 & abs(TotVsAOI)>3, water]) ### most have little water
+
 ### adding water has created some pixels where there's a fair amount of full AOI pixels where isa+pervious+water is well below AOI area
 
 ## I suspect we need water up in this beeitch
@@ -536,4 +589,185 @@ summary(soilR.dat[!is.na(aoi) & TotVsAOI>(3) & water>100, aoi]) ## most big fuck
 ## For draft pass, we will treat any LULC of "water" as if it were just water even if we saw canopy or grass at the location
 
 
+###
+### OK apply categorical soilR rates to the data by LULC
+forest.soilR.GS <- (2.62/1E6)*44.01*1E-3*(12/44.01)*60*60*24*(307-138) ## rate umolCO2/m2/s --> in kgC/m2/year (growing season, DOY138-DOY307)
+grass.soilR.GS <- (4.49/1E6)*44.01*1E-3*(12/44.01)*60*60*24*(307-138)
+ls.soilR.GS <- (6.73/1E6)*44.01*1E-3*(12/44.01)*60*60*24*(307-138)
 
+# ### are these factors correct?
+# (2.62/1E6)*44.01/1000 ## kgCO2/m2.s 1.15E-7
+# ((2.62/1E6)*44.01/1000)*(12/44.01) ## kgC/m2.s 3.14E-8
+# 307-138 ## 169 day in growing season
+# (60*60*24*(307-138)) ## 14E6 s per GS
+# (((2.62/1E6)*44.01/1000)*(12/44.01))*(60*60*24*(307-138)) ## 0.459 kgC/m2.GS, same as above
+# ## i.e. a single full pixel of complete forest will do ~413 kgC/yr
+# forest.soilR.GS*1E4 ## 4.59 MgC/ha per GS; compare: 1.6 (0.5 to 2.4) MgC/ha/yr in Forest
+# ## yes the mean factors are converted correctly, but if they operate constantly from start to finish of GS they will outdo the net C uptake by a lot
+# (4.59-1.6)/(2.99+1.6) ## implies that if C storage is in equilibrium in Forest that 65% of annual NPP is returning to soil (leaves, roots)
+# ### Schlesinger and Bernhart say 25-30% of aboveground production goes to leaves, maybe the same amount goes to roots 
+# 
+# ## to put it another way, the highest aboveground woody NPP we modeled was 3.1 MgC/ha/yr
+# 3.1*1000*1000*(44.01/12)*(1/44.01)*1E6*1E-4/60/60/24/(307-138) ## 1.77 umolCO2/m2/yr
+
+### apply these rates to our pixels based on area of each thing
+## Forest
+soilR.dat[,soilR.Forest.tot:=(Forestperv*forest.soilR.GS)]
+hist(soilR.dat$soilR.Forest.tot)
+
+## Dev
+soilR.dat[,soilR.Dev.barr:=(Dev.barr*0)] ## zero
+hist(soilR.dat$soilR.Dev.barr) 
+soilR.dat[,soilR.Dev.grass:=(Dev.grass*grass.soilR.GS)]
+hist(soilR.dat$soilR.Dev.grass)## getting up there!
+soilR.dat[,soilR.Dev.canPerv:=(0.5*Dev.canPerv*ls.soilR.GS)+(0.5*Dev.canPerv*grass.soilR.GS)]
+hist(soilR.dat$soilR.Dev.canPerv) ## oo wee!
+soilR.dat[,soilR.Dev.tot:=soilR.Dev.barr+soilR.Dev.grass+soilR.Dev.canPerv]
+hist(soilR.dat$soilR.Dev.tot) ## pretty chunktastic!
+
+## HDRes
+soilR.dat[,soilR.HDRes.barr:=(HDRes.barr*ls.soilR.GS)]
+hist(soilR.dat[,soilR.HDRes.barr])
+soilR.dat[,soilR.HDRes.grass:=(HDRes.grass*grass.soilR.GS)]
+hist(soilR.dat[,soilR.HDRes.grass])
+soilR.dat[,soilR.HDRes.canPerv:=(0.5*HDRes.canPerv*ls.soilR.GS)+(0.5*HDRes.canPerv*grass.soilR.GS)]
+hist(soilR.dat[,soilR.HDRes.canPerv])
+soilR.dat[,soilR.HDRes.tot:=soilR.HDRes.barr+soilR.HDRes.canPerv+soilR.HDRes.grass]
+hist(soilR.dat[,soilR.HDRes.tot]) ## interesting
+
+## LDRes
+soilR.dat[,soilR.LDRes.barr:=(HDRes.barr*ls.soilR.GS)]
+hist(soilR.dat[,soilR.LDRes.barr])
+soilR.dat[,soilR.LDRes.grass:=(LDRes.grass*grass.soilR.GS)]
+hist(soilR.dat[,soilR.LDRes.grass])
+soilR.dat[,soilR.LDRes.canPerv:=(0.5*LDRes.canPerv*ls.soilR.GS)+(0.5*LDRes.canPerv*grass.soilR.GS)]
+hist(soilR.dat[,soilR.LDRes.canPerv])
+soilR.dat[,soilR.LDRes.tot:=soilR.LDRes.barr+soilR.LDRes.canPerv+soilR.LDRes.grass]
+hist(soilR.dat[,soilR.LDRes.tot]) ## less than HD, there's so little of it
+
+## OVeg
+soilR.dat[,soilR.OVeg.barr:=(OVeg.barr*0)]
+soilR.dat[,soilR.OVeg.grass:=(OVeg.grass*grass.soilR.GS)]
+soilR.dat[,soilR.OVeg.canPerv:=(0.5*OVeg.canPerv*ls.soilR.GS)+(0.5*OVeg.canPerv*grass.soilR.GS)]
+soilR.dat[,soilR.OVeg.tot:=soilR.OVeg.barr+soilR.OVeg.canPerv+soilR.OVeg.grass]
+hist(soilR.dat[,soilR.OVeg.tot]) ## not a lot of this either
+
+## water
+soilR.dat[,soilR.water.tot:=water*0]
+
+## total soil R
+soilR.dat[, soilR.total:=apply(soilR.dat[, c("soilR.Forest.tot", 
+                                   "soilR.Dev.tot", 
+                                   "soilR.HDRes.tot", 
+                                   "soilR.LDRes.tot", 
+                                   "soilR.OVeg.tot", 
+                                   "soilR.water.tot")], MARGIN = 1, FUN=sum.na)]
+hist(soilR.dat[aoi>800, soilR.total]); summary(soilR.dat[aoi>800, soilR.total]) ## median 136 kgC/pix (0-394)
+
+### Version history of this calcuation:
+## V0: Static GS length, static (mean) daily R rates, water area anomaly not fixed, R in all LULC water = 0
+
+## diagnostics and summary results
+summary(soilR.dat[aoi>800, soilR.Forest.tot]) ## most pix a few hundred kg/yr
+soilR.dat[aoi>800 & lulc.lump==1, length(is.finite(soilR.Forest.tot))] ## 11270 forest majority pix with a valid retrieval
+soilR.dat[aoi>800 & lulc.lump==1, ] ## 11270 forest majority pix total
+soilR.dat[aoi>800 & lulc.lump==1, sum(soilR.Forest.tot, na.rm=T)/1000] ### 3.9 ktC/yr city wide, uptake median only 1.6 ktC/yr!!
+soilR.dat[aoi>800 & lulc.lump==1, sum(Forestperv, na.rm=T)]*1E-4 ## 8.4E06 m2 = 840 ha of forest soil
+soilR.dat[aoi>800, sum(Forestperv,na.rm=T)]/1E4 ## 924 ha + 88 ISA = 1012 ha total (should be 1022 at 1m)
+soilR.dat[aoi>800, sum(soilR.Forest.tot, na.rm=T)]/soilR.dat[aoi>800, sum(Forestperv, na.rm=T)] ## 0.459 kgC/m2/yr i.e. the exact default rate per m2
+
+
+## Developed
+summary(soilR.dat[aoi>800, soilR.Dev.tot]) ## up to 875 but usually below 250
+soilR.dat[aoi>800 & lulc.lump==2, length(is.finite(soilR.Dev.tot))] ## 51953 majority pix with a valid retrieval
+soilR.dat[aoi>800 & lulc.lump==2, ] ## 51953 majority pix total
+soilR.dat[aoi>800 & lulc.lump==2, sum(soilR.Dev.tot, na.rm=T)/1000] 
+soilR.dat[aoi>800 & lulc.lump==2, sum(Dev.barr, na.rm=T)+sum(Dev.grass, na.rm=T)+sum(Dev.canPerv, na.rm=T)]*1E-4 ## 899 ha of Dev soil in majority Dev pixels
+soilR.dat[aoi>800, sum(Dev.barr, na.rm=T)+sum(Dev.grass, na.rm=T)+sum(Dev.canPerv,na.rm=T)]/1E4 ## 992 ha + 3721 ISA = 4713 ha total (should be 4734 at 1m)
+soilR.dat[aoi>800, sum(soilR.Dev.tot, na.rm=T)]/soilR.dat[aoi>800, sum(Dev.barr, na.rm=T)+sum(Dev.grass, na.rm=T)+sum(Dev.canPerv,na.rm=T)] ## 0.386 kgC/m2/yr, bit below the forest rate
+
+
+## HDResid
+summary(soilR.dat[aoi>800, soilR.HDRes.tot]) ## median 321
+soilR.dat[aoi>800 & lulc.lump==3, length(is.finite(soilR.HDRes.tot))] ## 53534 majority pix with a valid retrieval
+soilR.dat[aoi>800 & lulc.lump==3, ] ## 53534 majority pix total
+soilR.dat[aoi>800 & lulc.lump==3, sum(soilR.HDRes.tot, na.rm=T)/1000] ## 16 ktC/yr
+soilR.dat[aoi>800 & lulc.lump==3, sum(HDRes.barr, na.rm=T)+sum(HDRes.grass, na.rm=T)+sum(HDRes.canPerv, na.rm=T)]*1E-4 ## 1755 ha of HDRes soil in majority Dev pixels
+soilR.dat[aoi>800, sum(HDRes.barr, na.rm=T)+sum(HDRes.grass, na.rm=T)+sum(HDRes.canPerv,na.rm=T)]/1E4 ## 1855 ha + 2950 ISA = 4805 ha total (should be 4815 at 1m)
+soilR.dat[aoi>800, sum(soilR.HDRes.tot, na.rm=T)]/soilR.dat[aoi>800, sum(HDRes.barr, na.rm=T)+sum(HDRes.grass, na.rm=T)+sum(HDRes.canPerv,na.rm=T)] ### 0.917 kgC/m2/yr, midway between grass and landscape
+  
+## LDResid
+summary(soilR.dat[aoi>800, soilR.LDRes.tot]) ## median 244 kg
+soilR.dat[aoi>800 & lulc.lump==4, length(is.finite(soilR.LDRes.tot))] ## 2694 majority pix with a valid retrieval
+soilR.dat[aoi>800 & lulc.lump==4, ] ## 2694 majority pix total
+soilR.dat[aoi>800 & lulc.lump==4, sum(soilR.LDRes.tot, na.rm=T)/1000] ## 295 tC/yr (vrey few are majority area?)
+soilR.dat[aoi>800 & lulc.lump==4, sum(LDRes.barr, na.rm=T)+sum(LDRes.grass, na.rm=T)+sum(LDRes.canPerv, na.rm=T)]*1E-4 ## 140 ha of LDRes soil in majority Dev pixels
+soilR.dat[aoi>800, sum(LDRes.barr, na.rm=T)+sum(LDRes.grass, na.rm=T)+sum(LDRes.canPerv,na.rm=T)]/1E4 ## 161 ha + 279 ISA = 243 ha total (should be 247 at 1m)
+soilR.dat[aoi>800, sum(soilR.LDRes.tot, na.rm=T)]/soilR.dat[aoi>800, sum(LDRes.barr, na.rm=T)+sum(LDRes.grass, na.rm=T)+sum(LDRes.canPerv,na.rm=T)] ### 0.304 kgC/m2/yr ??? 
+soilR.dat[aoi>800, sum(soilR.LDRes.tot, na.rm=T)]/1000 ### 491 tC/yr very low??
+## something seems amiss with this calc, shouldn't be possible to get this little per m2
+
+## OVeg
+summary(soilR.dat[aoi>800, soilR.OVeg.tot]) ## median 372 kg
+soilR.dat[aoi>800 & lulc.lump==5, length(is.finite(soilR.OVeg.tot))] ## 14383 majority pix with a valid retrieval
+soilR.dat[aoi>800 & lulc.lump==5, ] ## 14383 majority pix total
+soilR.dat[aoi>800 & lulc.lump==5, sum(soilR.OVeg.tot, na.rm=T)/1000] ## 3 ktC/yr
+soilR.dat[aoi>800 & lulc.lump==5, sum(OVeg.barr, na.rm=T)+sum(OVeg.grass, na.rm=T)+sum(OVeg.canPerv, na.rm=T)]*1E-4 ## 942 ha of Oveg soil in majority Dev pixels
+soilR.dat[aoi>800, sum(OVeg.barr, na.rm=T)+sum(OVeg.grass, na.rm=T)+sum(OVeg.canPerv,na.rm=T)]/1E4 ## 1008 ha + 279 ISA = 1287 ha total (should be 1338 at 1m)
+soilR.dat[aoi>800, sum(soilR.OVeg.tot, na.rm=T)]/soilR.dat[aoi>800, sum(OVeg.barr, na.rm=T)+sum(OVeg.grass, na.rm=T)+sum(OVeg.canPerv,na.rm=T)] ### 0.313 kgC/m2/yr, below forest, we treat barren in this one as 0
+
+## water
+summary(soilR.dat[aoi>800, soilR.water.tot]) ## 0
+soilR.dat[aoi>800 & lulc.lump==6, length(is.finite(soilR.water.tot))] ## 2547 majority pix with a valid retrieval
+soilR.dat[aoi>800 & lulc.lump==6, ] ## 2547 majority pix total
+soilR.dat[aoi>800 & lulc.lump==6, sum(soilR.water.tot, na.rm=T)/1000] ## 0 ktC/yr
+soilR.dat[aoi>800 & lulc.lump==6, sum(water, na.rm=T)]*1E-4 ## 209 ha of water in majority water pixels
+soilR.dat[aoi>800, sum(water,na.rm=T)]/1E4 ## 230 ha + 7 ISA = 237 ha total (should be 231 at 1m) ## OVERSHOOT??
+## water area still looks fishy -- might be double counting ISA in water (yes we are)
+
+## total
+summary(soilR.dat[aoi>800, soilR.total]) ## 136 kg median
+soilR.dat[aoi>800, length(is.finite(soilR.total))] ## 136667 pix with a valid retrieval
+soilR.dat[aoi>800, sum(soilR.total, na.rm=T)/1000] ## 28.7 ktC/yr
+soilR.dat[aoi>800, sum(soilR.total, na.rm=T)]/soilR.dat[, sum(Forestperv, na.rm=T)+
+                                                          sum(Dev.barr, na.rm=T)+sum(Dev.grass, na.rm=T)+sum(Dev.canPerv, na.rm=T)+
+                                                          sum(HDRes.barr, na.rm=T)+sum(HDRes.grass, na.rm=T)+sum(HDRes.canPerv, na.rm=T)+
+                                                          sum(LDRes.barr, na.rm=T)+sum(LDRes.grass, na.rm=T)+sum(LDRes.canPerv, na.rm=T)+
+                                                          sum(OVeg.barr, na.rm=T)+sum(OVeg.grass, na.rm=T)+sum(OVeg.canPerv, na.rm=T)+
+                                                          sum(water, na.rm=T)] ## 0.548 kgC/m2/yr, just above forest rate in pervious cover
+
+
+soilR.dat[aoi>800, sum(soilR.total, na.rm=T)/1000] ## 28.7 ktC/yr
+
+## are we getting close to the official areas by LULC?
+soilR.dat[, sum(Forestperv, na.rm=T)+
+            sum(Dev.barr, na.rm=T)+sum(Dev.grass, na.rm=T)+sum(Dev.canPerv, na.rm=T)+
+            sum(HDRes.barr, na.rm=T)+sum(HDRes.grass, na.rm=T)+sum(HDRes.canPerv, na.rm=T)+
+            sum(LDRes.barr, na.rm=T)+sum(LDRes.grass, na.rm=T)+sum(LDRes.canPerv, na.rm=T)+
+            sum(OVeg.barr, na.rm=T)+sum(OVeg.grass, na.rm=T)+sum(OVeg.canPerv, na.rm=T)+
+            sum(water, na.rm=T)]/1E4
+## 5240 ha pervious
+soilR.dat[, sum(Forestperv, na.rm=T)+
+            sum(Dev.barr, na.rm=T)+sum(Dev.grass, na.rm=T)+sum(Dev.canPerv, na.rm=T)+
+            sum(HDRes.barr, na.rm=T)+sum(HDRes.grass, na.rm=T)+sum(HDRes.canPerv, na.rm=T)+
+            sum(LDRes.barr, na.rm=T)+sum(LDRes.grass, na.rm=T)+sum(LDRes.canPerv, na.rm=T)+
+            sum(OVeg.barr, na.rm=T)+sum(OVeg.grass, na.rm=T)+sum(OVeg.canPerv, na.rm=T)+
+            sum(water, na.rm=T)+
+            sum(isa, na.rm=T)]/1E4
+## 12383 total
+12383/12455 ## missing 0.6% of area
+
+## bulk soilR across entire city
+soilR.dat[aoi>800, sum(soilR.total, na.rm=T)/1000]/soilR.dat[aoi>800, sum(aoi, na.rm=T)/1E4] ## 2.34 MgC/ha/yr
+soilR.dat[aoi>800, sum(aoi, na.rm=T)/1E4] ## 12296 ha total -- still missing some area god damnit, like ~1%
+2.34*12296 ## ok this about what you'd need to get 
+
+soilR.dat[,perv.tot:=apply(soilR.dat[,c(4:17)], MARGIN=1, FUN=sum.na)]
+hist(soilR.dat[,perv.tot]); summary(soilR.dat[,perv.tot])## most of the shit is way impervious; median 0, mean 148
+plot(soilR.dat[aoi>800, perv.tot], soilR.dat[aoi>800, soilR.total]) ## sensible: you can get low soilR with high pervious (barren, water), but not high soilR with low pervious
+
+
+### a map of soil R by pixel
+## side by side: a map of NPP by pixel
+
+## a table of LULC | ISA | Pervious | Barren | Grass | Can+perv
