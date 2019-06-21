@@ -56,7 +56,11 @@ print("cellsizex="+str(cs))
 ##arcpy.gp.Aggregate_sa("H:/BosBiog/processed/bos.cov.OVeg-canPerv.tif", "H:/BosBiog/processed/bos.cov.OVeg-canPerv30m.tif", "30", "SUM", "EXPAND", "DATA")
 ##print("finished cov.OVeg-canPerv 30m")
 
-# Water
-arcpy.gp.Aggregate_sa("H:/FragEVI/processed/boston/bos.water_only.tif", "H:/BosBiog/processed/bos.cov.water30m.tif", "30", "SUM", "EXPAND", "DATA")
-print("finished cov.water 30m")
+### Water
+##arcpy.gp.Aggregate_sa("H:/FragEVI/processed/boston/bos.water_only.tif", "H:/BosBiog/processed/bos.cov.water30m.tif", "30", "SUM", "EXPAND", "DATA")
+##print("finished cov.water 30m")
+
+# AOI2
+arcpy.gp.Aggregate_sa("H:/BosBiog/processed/bos.aoi2.tif", "H:/BosBiog/processed/bos.aoi230m.tif", "30", "SUM", "EXPAND", "DATA")
+print("finished aoi2 30m")
 
