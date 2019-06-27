@@ -66,19 +66,29 @@ library(zoo)
 ###
 ### Create lumped LULC map
 #####
-# ### call python script for rasterize LULC in Boston to 1m canopy grid
-# ## there is some goof-ballery in discrepencies between the EOTROAD, TOWNS polys, and LULC polys but in general the ISA, LULC, EOTROADS polys seem to line up acceptably well
-# ## going to re-rasterize the LULC at broad scale and then reprocess into lumped categories
+## This process is different from the approach in FragEVI
+## for BosBiog we make a lumped LULC_poly map (code below in 30m aggregate section), then rasterize that at BOTH 1m ISA.RR2 grid and 30m EVI grid
+
+### This script rasterizes LULC in Boston to 1m ISA.RR2 grid
 # pyth.path = 'H:/FragEVI/Rscripts/LULC_bos_rast.py'
 # output = system2('C:/Python27/ArcGIS10.4/python.exe', args=pyth.path, stdout=TRUE)
 # print(output)
-# 
+
 # ### make a clean version of the LULC 1m raster
-# # bos.lulc <- raster("processed/bos.lulc.tif")
-# # bos.aoi <- raster("processed/bos.aoi2.tif")
-# # bos.lulc <- crop(bos.lulc, bos.aoi)
-# # bos.lulc <- mask(bos.lulc, bos.aoi, filename="processed/bos.lulc.tif", format="GTiff", overwrite=T)
-# 
+# bos.lulc <- raster("processed/bos.lulc.lumped.tif")
+# bos.aoi <- raster("processed/bos.aoi2.tif")
+# bos.lulc <- crop(bos.lulc, bos.aoi)
+# bos.lulc <- mask(bos.lulc, bos.aoi, filename="processed/bos.lulc.lumped.tif", format="GTiff", overwrite=T)
+# ## do the same for the raw lulc 1m map
+# bos.lulc.raw <- raster("processed/bos.lulc.raw.tif")
+# bos.aoi <- raster("processed/bos.aoi2.tif")
+# bos.lulc.raw <- crop(bos.lulc.raw, bos.aoi)
+# bos.lulc.raw <- mask(bos.lulc.raw, bos.aoi, filename="processed/bos.lulc.tif", format="GTiff", overwrite=T)
+### something is feverishly wrong with trying to put together the original 1m unlumped lulc categories
+### things get overwriten with the wrong numbers once you crop and mask, can't figure out how to fix it...
+
+
+# ## The below is how we lumped the 1m full LULC categories
 # ## collapsed LULC scheme to flag for area fraction
 # lulc.lump <- function(x, lu.defs, filename) { # x is lulc, lu.defs is the list of collapsed classes, filename=output
 #   out <- raster(x)
@@ -157,7 +167,7 @@ library(zoo)
 # s <- can.fix(bos.can, bos.aoi, bos.can.sm, filename="processed/bos.can.redux2.tif")
 # plot(s) ## seems alright
 
-### do the biomass file while you'r here
+### do the biomass file while you're here
 # bos.biom <- raster("data/dataverse_files/bostonbiomass_1m.tif")
 # bos.biom <- crop(bos.biom, bos.aoi)
 # writeRaster(bos.biom, filename="processed/boston/bos.biom.tif", format="GTiff", overwrite=T)
@@ -424,9 +434,9 @@ flag.water(bos.cov, bos.lulc, bos.aoi, "processed/bos.cov.V7")
 bos.cov <- raster("processed/bos.cov.V7-canisa+lulc.tif")
 bos.aoi <- raster("processed/bos.aoi2.tif")
 bos.lulc <- raster("processed/bos.lulc.lumped.tif")
-# extent(bos.cov); crs(bos.cov)
-# extent(bos.aoi); crs(bos.aoi)
-# extent(bos.lulc); crs(bos.lulc) ## we good
+extent(bos.cov); crs(bos.cov)
+extent(bos.aoi); crs(bos.aoi)
+extent(bos.lulc); crs(bos.lulc) ## we good
 
 lulc.cov.count <- function(x, a, l) { # x is cov*lulc, a is aoi, l is lulc lumped
   out <- raster(x)
@@ -485,7 +495,7 @@ cov.frac$ValidAOI[1]/1E4 ## 12,434 ha in AOI -- AOI is bigger than the lulc and 
 cov.frac$ValidLULCxcover[1]/1E4 ## 12395 ha same as total cov+LULC
 
 ## OK so there are AOI pixels that never got LULC -- towns.shp for boston is slightly more extensive (esp. waterfront) than the LULC layer
-12395/12434 ## about 0.3% of pixels have no LULC but are in LULC
+12395/12434 ## about 0.3% of pixels have no LULC but are in AOI2
 ## but everywhere that had an LULC had a cover
 
 ## fractional area (judged by most restrictive pixel set -->valid!)
@@ -544,30 +554,37 @@ write.csv(cov.sum, "processed/results/perv.cover.summary.V1.csv")
 ##
 ### rerun the lulc polys to get a 30m majority area class for the LULC lumped categories
 ## fun catch! You can't do this with the 1m lumped raster -- you need to manually lump the polygons! FUCK YEAHHHH!!!
-lulc <- readOGR("data/LULC/LU_polys_NAD83UTM19N/LU_polys_BOSTON.shp")
-## create a new field to lump the polygons with
-lu.forest <- c(3,37) # Forest, FWet
-lu.dev <- c(5,8,15,16,17,18,19,29,31,36,39) #Mining, Spect-rec, Comm, Ind, Transitional, Transp, Waste Disp, Marina, Urb Pub/Inst., Nursery, Junkyard
-lu.hdres <- c(10,11) # HDResid., MFResid.,
-lu.ldres <- c(12,13,38) # MDResid., LDResid, VLDResid
-lu.lowveg <- c(1,2,4,6,7,9,14,25,26,34,40) # Crop, pasture, open, part-rec, water-rec, SWwet, SWbeach, Golf, Cemetery, Brushland
-lu.water <- c(20)
-lulc@data$LU_LUMP[lulc@data$LUCODE%in%lu.forest] <- 1
-lulc@data$LU_LUMP[lulc@data$LUCODE%in%lu.dev] <- 2
-lulc@data$LU_LUMP[lulc@data$LUCODE%in%lu.hdres] <- 3
-lulc@data$LU_LUMP[lulc@data$LUCODE%in%lu.ldres] <- 4
-lulc@data$LU_LUMP[lulc@data$LUCODE%in%lu.lowveg] <- 5
-lulc@data$LU_LUMP[lulc@data$LUCODE%in%lu.water] <- 6
-lulc@data$Shape_Leng <- NULL
-lulc@data$Shape_Area <- NULL
-lulc@data$SHAPE_A <- NULL
-lulc@data$SHAPE_L <- NULL
-lulc@data$area_m2 <- NULL
-lulc@data$AREA <- NULL ## a lot of these were getting fucked up on write with too many floating points or something
-lulc@data$LU_LUMP <- as.integer(lulc@data$LU_LUMP)
-plot(lulc, col=lulc@data$LU_LUMP, border=NA) # throwin hunids, hunids
-writeOGR(obj = lulc, dsn = "data/LULC/LU_polys_NAD83UTM19N/LU_polys_BOSTON_lump.shp", layer = "LU_polys_BOSTON_lump.shp", driver = "ESRI Shapefile", overwrite_layer = TRUE)
+# lulc <- readOGR("data/LULC/LU_polys_NAD83UTM19N/LU_polys_BOSTON.shp")
+# ## create a new field to lump the polygons with
+# lu.forest <- c(3,37) # Forest, FWet
+# lu.dev <- c(5,8,15,16,17,18,19,29,31,36,39) #Mining, Spect-rec, Comm, Ind, Transitional, Transp, Waste Disp, Marina, Urb Pub/Inst., Nursery, Junkyard
+# lu.hdres <- c(10,11) # HDResid., MFResid.,
+# lu.ldres <- c(12,13,38) # MDResid., LDResid, VLDResid
+# lu.lowveg <- c(1,2,4,6,7,9,14,25,26,34,40) # Crop, pasture, open, part-rec, water-rec, SWwet, SWbeach, Golf, Cemetery, Brushland
+# lu.water <- c(20)
+# lulc@data$LU_LUMP[lulc@data$LUCODE%in%lu.forest] <- 1
+# lulc@data$LU_LUMP[lulc@data$LUCODE%in%lu.dev] <- 2
+# lulc@data$LU_LUMP[lulc@data$LUCODE%in%lu.hdres] <- 3
+# lulc@data$LU_LUMP[lulc@data$LUCODE%in%lu.ldres] <- 4
+# lulc@data$LU_LUMP[lulc@data$LUCODE%in%lu.lowveg] <- 5
+# lulc@data$LU_LUMP[lulc@data$LUCODE%in%lu.water] <- 6
+# lulc@data$Shape_Leng <- NULL
+# lulc@data$Shape_Area <- NULL
+# lulc@data$SHAPE_A <- NULL
+# lulc@data$SHAPE_L <- NULL
+# lulc@data$area_m2 <- NULL
+# lulc@data$AREA <- NULL ## a lot of these were getting fucked up on write with too many floating points or something
+# lulc@data$LU_LUMP <- as.integer(lulc@data$LU_LUMP)
+# plot(lulc, col=lulc@data$LU_LUMP, border=NA) # throwin hunids, hunids
+# writeOGR(obj = lulc, dsn = "data/LULC/LU_polys_NAD83UTM19N/LU_polys_BOSTON_lump.shp", layer = "LU_polys_BOSTON_lump.shp", driver = "ESRI Shapefile", overwrite_layer = TRUE)
 ### Now just run bos1m_agg.py in H:/BosBiog/Rscripts, my dude. It's all set up.
+# ## now groom the file
+# test <- raster("processed/bos.lulc.lumped30m.tif")
+# plot(test)
+# bos.aoi <- raster("processed/bos.aoi230m.tif")
+# test <- crop(test, bos.aoi)
+# test <- mask(test, bos.aoi)
+# writeRaster(test, "processed/bos.lulc.lumped30m.tif", overwrite=T, format="GTiff")
 #####
 
 ##
@@ -626,7 +643,7 @@ sum.na <- function(x){sum(x, na.rm=T)}
 # hist(apply(soilR.dat[, c(2,4:17)], MARGIN = 1, FUN=sum.na)) ## ok we can do it direct
 soilR.dat[,pix.TotArea:=apply(soilR.dat[,c(2, 4:18)], MARGIN = 1, FUN=sum.na)]
 summary(soilR.dat$pix.TotArea); hist(soilR.dat$pix.TotArea) ## ok this at least gives us what looks like something
-soilR.dat[aoi>800]
+soilR.dat[aoi>800,]
 soilR.dat[pix.TotArea>800,] ## slightly fewer full cover pixels than the full aoi pixels
 plot(soilR.dat[, aoi], soilR.dat[, pix.TotArea]); abline(a=0, b=1, col="red") ## the bulk seem to follow a 1:1 line
 plot(soilR.dat[aoi>800, aoi], soilR.dat[aoi>800, pix.TotArea]) ## scattering of thigns in between but most cover sums are only as high as the AOI sum
@@ -705,6 +722,51 @@ ls.soilR.GS <- (6.73/1E6)*44.01*1E-3*(12/44.01)*60*60*24*(307-138)
 # 
 # ## to put it another way, the highest aboveground woody NPP we modeled was 3.1 MgC/ha/yr
 # 3.1*1000*1000*(44.01/12)*(1/44.01)*1E6*1E-4/60/60/24/(307-138) ## 1.77 umolCO2/m2/yr
+
+## upgrade: Figure out the factors to growing season facrors to use if we integrate under the curve of each land type
+steve <- read.csv("data/soil/Decina_C_metadata_measurements/all.fluxes.csv")
+treat <- read.csv("data/soil/Decina_C_metadata_measurements/2014_BosNut_SRCollars_means.csv")
+resp <- merge(steve, treat[,c(1:10)], by.x="collar", by.y="Collar", all.x=T, all.y=F)
+dim(resp); unique(resp$Category); unique(resp$Location)
+plot(resp$DOY, resp$umol.m2.s, col=as.numeric(as.factor(resp$Location)))
+resp <- as.data.table(resp)
+library(mgcv)
+## fit a cubic smooth spline with error to each grouping, get the integrated GS total C flux
+d.x <- data.frame(DOY=seq(134, 310, length.out=1000)) ## DOY 310 to get us through the whole GS measured
+days <- 309-134+1 ## how many GS days are we talking here?
+flux.hold <- seq(1:1000)
+for(jj in c("Lawn", "Other", "Forest")){
+  e <- gam(umol.m2.s~s(DOY, bs="cr"), 
+           data=resp[Location==jj & !(is.na(umol.m2.s)),], se.fit=T)
+  
+  t <- predict(e, type="response", se.fit=T, newdata=d.x)
+  t.dat <- data.frame(fit=t[["fit"]], se=t[["se.fit"]], DOY=d.x$DOY)
+  t.dat <- t.dat[order(t.dat$DOY),]
+  plot(resp[Location==jj, DOY], resp[Location==jj, umol.m2.s], col="purple", main=paste(jj))
+  lines(t.dat$DOY, t.dat$fit, col="black")
+  lines(t.dat$DOY, t.dat$fit-(2*t$se), col="red")
+  lines(t.dat$DOY, t.dat$fit+(2*t$se), col="blue")
+  ## Ok these give us good boundaries at every level of DOY we look at
+  ## now randomly predict flux CO2 in each bin and then get the integral for growing season
+  ## (days/(dim(d.x)[1]))*24*60*60 ## number of seconds per bin
+  int <- numeric()
+  for(r in 1:1000){ ## 1000 boostraps of this
+    s <- numeric()
+    for(i in 1:dim(t.dat)[1]){ ## get a sample at every level
+      s <- c(s, 
+             (rnorm(n=1,
+                    mean=t.dat$fit[i], 
+                    sd=t.dat$se[i]))*1E-6*44.01*1E-3*(12/44.01)*(days/(dim(d.x)[1]))*24*60*60
+      ) ## this is a randomly selected flux prediction for every bin, corrected to kgC total flux in that bin
+    }
+    int <- c(int, sum(s))
+    print(paste("finished bootstrap", r))
+  }
+  # hist(int) ## not a lot of variance here (model interval is small), slightly higher than static
+  flux.hold <- cbind(flux.hold, int)
+}
+colnames(flux.hold) <- c("sample.num", "Lawn.GStotal", "Other.GStotal", "Forest.GStotal")
+par(mfrow=c(1,3)); hist(flux.hold[,2]); hist(flux.hold[,3]); hist(flux.hold[,4])
 
 ### apply these rates to our pixels based on area of each thing
 ## Forest

@@ -70,6 +70,6 @@ print("cellsizex="+str(cs))
 arcpy.gp.Aggregate_sa("H:/BosBiog/processed/bos.isa.RR2.tif", "H:/BosBiog/processed/bos.isa30m.tif", "30", "SUM", "EXPAND", "DATA")
 print("finished isa 30m")
 
-# lulc.lumped
-arcpy.gp.Aggregate_sa("H:/BosBiog/processed/bos.lulc.lumped.tif", "H:/BosBiog/processed/bos.lulc.lumped30m.tif", "30", "SUM", "EXPAND", "DATA")
-print("finished isa 30m")
+# # lulc.lumped
+# arcpy.gp.Aggregate_sa("H:/BosBiog/processed/bos.lulc.lumped.tif", "H:/BosBiog/processed/bos.lulc.lumped30m.tif", "30", "SUM", "EXPAND", "DATA")
+# print("finished lulc.lumped 30m")
