@@ -67,9 +67,19 @@ print("cellsizex="+str(cs))
 # print("finished aoi2 30m")
 
 # ISA RR2
-arcpy.gp.Aggregate_sa("H:/BosBiog/processed/bos.isa.RR2.tif", "H:/BosBiog/processed/bos.isa30m.tif", "30", "SUM", "EXPAND", "DATA")
-print("finished isa 30m")
+##arcpy.gp.Aggregate_sa("H:/BosBiog/processed/bos.isa.RR2.tif", "H:/BosBiog/processed/bos.isa30m.tif", "30", "SUM", "EXPAND", "DATA")
+##print("finished isa 30m")
 
 # # lulc.lumped
 # arcpy.gp.Aggregate_sa("H:/BosBiog/processed/bos.lulc.lumped.tif", "H:/BosBiog/processed/bos.lulc.lumped30m.tif", "30", "SUM", "EXPAND", "DATA")
 # print("finished lulc.lumped 30m")
+
+# grass, total
+arcpy.gp.Aggregate_sa("H:/BosBiog/processed/bos.turfgrass.tif", "H:/BosBiog/processed/bos.turfgrass30m.tif", "30", "SUM", "EXPAND", "DATA")
+print("finished turf grass 30m")
+
+# golf grass
+arcpy.gp.Aggregate_sa("H:/BosBiog/processed/bos.golfgrass.tif", "H:/BosBiog/processed/bos.golfgrass30m.tif", "30", "SUM", "EXPAND", "DATA")
+print("finished golf grass 30m")
+
+

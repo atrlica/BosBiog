@@ -1,15 +1,3 @@
-library(rgdal)
-library(rgeos)
-library(raster)
-library(data.table)
-
-
-###
-### Developing a phenology-based schedule for biomass C uptake
-######
-
-### 
-### Harvard Forest Fluxtower data processing to get stereotyped uptake curve
 library(data.table)
 library(lubridate)
 library(bit64)
@@ -20,6 +8,12 @@ library(rgeos)
 library(raster)
 library(data.table)
 
+###
+### Developing a phenology-based schedule for biomass C uptake
+######
+
+### 
+### Harvard Forest Fluxtower data processing to get stereotyped uptake curve
 ## read in the hf ameriflux data and un-fuck the timestamps
 # hf <- fread("data/flux/AMF_US-Ha1_BASE-BADM_11-5/AMF_US-Ha1_BASE_HR_11-5.csv")
 # hf[,TIMESTAMP_START:=as.character(TIMESTAMP_START)]
