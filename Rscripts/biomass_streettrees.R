@@ -304,6 +304,297 @@ hist(residuals(mod.street.dbhdelta.me)) ## looks good enough to me
 #####
 
 
+
+
+
+##### PART 1a: Develop a comprehensive lookup table for necessary allometric equations
+######
+## Step 0: Whip the species IDs into shape
+library(data.table)
+street <- fread("H:/FragEVI/processed/boston/street.trees.dbh.csv")
+# t <- street[,length(dbh.2006), by=Species]
+# t <- t[order(t[,Species])]; t
+street[Species=="Acer", Species:="Acer platanoides"] ## 4 un-ID'd Acer --> Norway
+street[Species=="Betula americana", Species:="Betula"] ## 1 un-ID's Betula, probably papyrifera but no species-specific allometrics anyway
+street[Species=="Celtis", Species:="Celtis occidentalis"] ## only 1 un-ID'd, and we have an allometric entry for Celtis occidentalis
+street[Species=="Fraxinus", Species:="Fraxinus pennsylvanica"] ## 24 un-ID'd fraxinus but much more likely to be penn. than americana
+street[Species=="Liquidambar", Species:="Liquidambar styraciflua"] ## 4 un-ID'd, almost certaintly American sweetgums
+street[Species=="Malus", Species:="Malus spp."] ## so the table lookup will work
+## 2 Magnolia -- can't say
+## 1 Morus -- can't say
+street[Species=="Prunus", Species:="Prunus serrulata"] ## 144 un-ID'd Prunus, I'll guess most are serrulata (Japanese cherry), which has an allometric entry
+street[Species=="Pyrus", Species:="Pyrus calleryana"] ## 150 Pyrus spp. byt I'd bet any random Pear is a Callery Pear
+street[Species=="Quercus", Species:="Quercus rubra"] ## 1 Quercus spp., most common by far is rubra (123 rubra vs ~50 all other spp.)
+## 111 Ulmus spp., 16 Ulmus european, 14 U. americana, 4 U. crassifolia -- no idea how to assign these, U. americana has some allometric entries
+street[Species=="Zelkova", Species:="Zelkova serrata"] ## 238 un-ID'd, serrata has an allometric entry
+## the rest don't lend themselves obviously to any neater arrangement
+### for simplicity, I'm going to eliminate the singular Pinus spp. in here so I don't have to write whole other lookups and defaults for it
+street <- street[Species!="Pinus resinosa",]
+t <- street[,length(dbh.2006), by=Species]
+t <- t[order(t[,Species])]; t ## here's what we are dealing with
+
+## note here: "Platanus acerifolia" (street record) == "Platanus x aerifolia" (TS6) == "Platanus hybrida" (TS7, TS5)
+taxa <- street[record.good==1, length(Object_ID), by=Species] ## this needs some cleaning up, 68 unique
+taxa <- taxa[order(taxa[,Species]),] ## 38 unique Species ID in the good records
+names(taxa)[2] <- "num.rec"
+genspec <- strsplit(as.character(taxa$Species), " ")
+gen <- unlist(lapply(genspec, "[[", 1))
+taxa[,genus:=gen] ## 40 genera
+
+## Step 1: match a leaf area equation to each unique species
+## read in Table S6 (growth equations) from McPherson and groom to region & predictors
+fol <- fread("H:/FragEVI/docs/RDS-2016-0005/Data/TS6_Growth_coefficients.csv") ## the raw file has typos in coefficient column a that fuck up the read in, have manually deleted
+# class(fol$a) ## numeric, we're fine
+fol <- fol[Region=="NoEast" & `Independent variable`=="dbh" & `Predicts component`=="leaf area",]
+## get equation form
+taxa[,fol.eq.form:=fol$EqName[match(taxa$Species, fol$`Scientific Name`)]]
+# taxa[is.na(fol.eq.form), sum(num.rec)]/taxa[,sum(num.rec)] ## 14% don't get a foliar equation
+taxa[, fill.flag:=0] ## flag which equations are getting an interpreted equation rather than a direct lookup
+taxa[is.na(fol.eq.form), fill.flag:=1]
+
+## retrieve equation coefficients
+taxa[,fol.a:=fol$a[match(taxa$Species, fol$`Scientific Name`)]]
+taxa[,fol.b:=fol$b[match(taxa$Species, fol$`Scientific Name`)]]
+taxa[,fol.c:=fol$c[match(taxa$Species, fol$`Scientific Name`)]]
+taxa[,fol.d:=fol$d[match(taxa$Species, fol$`Scientific Name`)]]
+## lump Acer and Ulmus, manually apply the Platanus acerifolia + Platanus occidentalis; Frax. pennsylvanica + Frax. americana; T. cordata + T. americana
+taxa[Species=="Platanus acerifolia", c("fol.eq.form", "fol.a", "fol.b", "fol.c", "fol.d"):=list(fol[match("Platanus x acerifolia", fol$`Scientific Name`), EqName],
+                                                                                fol[match("Platanus x acerifolia", fol$`Scientific Name`), a],
+                                                                                fol[match("Platanus x acerifolia", fol$`Scientific Name`), b],
+                                                                                fol[match("Platanus x acerifolia", fol$`Scientific Name`), c],
+                                                                                fol[match("Platanus x acerifolia", fol$`Scientific Name`), d])]
+taxa[Species=="Platanus acerifolia", fill.flag:=0] ## this isn't a fill it was just done manually
+
+## if making these substitutions is a bridge too far, just comment this part out
+## 0 P. occidentalis in the groomed taxa record
+# taxa[Species=="Platanus occidentalis", c("fol.eq.form", "a", "b", "c", "d"):=list(fol[match("Platanus x acerifolia", fol$`Scientific Name`), EqName],
+#                                                                                 fol[match("Platanus x acerifolia", fol$`Scientific Name`), fol.a],
+#                                                                                 fol[match("Platanus x acerifolia", fol$`Scientific Name`), fol.b],
+#                                                                                 fol[match("Platanus x acerifolia", fol$`Scientific Name`), fol.c],
+#                                                                                 fol[match("Platanus x acerifolia", fol$`Scientific Name`), fol.d])]
+
+## 0 F. american in the groomed taxa record
+# taxa[Species=="Fraxinus americana", c("fol.eq.form", "a", "b", "c", "d"):=list(fol[match("Fraxinus pennsylvanica", fol$`Scientific Name`), EqName],
+#                                                                                 fol[match("Fraxinus pennsylvanica", fol$`Scientific Name`), fol.a],
+#                                                                                 fol[match("Fraxinus pennsylvanica", fol$`Scientific Name`), fol.b],
+#                                                                                 fol[match("Fraxinus pennsylvanica", fol$`Scientific Name`), fol.c],
+#                                                                                 fol[match("Fraxinus pennsylvanica", fol$`Scientific Name`), fol.d])]
+
+### 29 A. campestre and 1 A. pseudoplatanus in the groomed taxa record
+# taxa[genus=="Acer" & fill.flag==1, c("fol.eq.form", "a", "b", "c", "d"):=list(fol[match("Acer platanoides", fol$`Scientific Name`), EqName],
+#                                                                                fol[match("Acer platanoides", fol$`Scientific Name`), fol.a],
+#                                                                                fol[match("Acer platanoides", fol$`Scientific Name`), fol.b],
+#                                                                                fol[match("Acer platanoides", fol$`Scientific Name`), fol.c],
+#                                                                                fol[match("Acer platanoides", fol$`Scientific Name`), fol.d])]
+
+## 55 Ulmus spp. in the groomed taxa record
+taxa[genus=="Ulmus" & fill.flag==1, c("fol.eq.form", "fol.a", "fol.b", "fol.c", "fol.d"):=list(fol[match("Ulmus americana", fol$`Scientific Name`), EqName],
+                                                                              fol[match("Ulmus americana", fol$`Scientific Name`), a],
+                                                                              fol[match("Ulmus americana", fol$`Scientific Name`), b],
+                                                                              fol[match("Ulmus americana", fol$`Scientific Name`), c],
+                                                                              fol[match("Ulmus americana", fol$`Scientific Name`), d])]
+
+## 16 T. americana in the groomed taxa record
+taxa[Species=="Tilia americana" & fill.flag==1, c("fol.eq.form", "fol.a", "fol.b", "fol.c", "fol.d"):=list(fol[match("Tilia cordata", fol$`Scientific Name`), EqName],
+                                                                               fol[match("Tilia cordata", fol$`Scientific Name`), a],
+                                                                               fol[match("Tilia cordata", fol$`Scientific Name`), b],
+                                                                               fol[match("Tilia cordata", fol$`Scientific Name`), c],
+                                                                               fol[match("Tilia cordata", fol$`Scientific Name`), d])]
+
+taxa[is.na(fol.eq.form), sum(num.rec)]/taxa[,sum(num.rec)] ## now only 2.5% of taxa with good records don't get a foliar equation
+
+### write functions to handle the different equation forms
+# taxa[,unique(fol.eq.form)]
+fol.loglogw1 <- function(x, a, b, c){exp(a+(b*log(log(x+1)))+(c/2))}
+fol.loglogw2 <- function(x, a, b, c){exp(a+(b*log(log(x+1)))+(sqrt(x)*(c/2)))}
+fol.quad <- function(x, a, b, c){a+(b*x)+(c*(x^2))}
+fol.cub <- function(x, a, b, c, d){a+(b*x)+(c*(x^2))+(d*(x^3))}
+
+# ### test foliar area predictions
+# ## Sweetgum example
+# dbh=35
+# a=-4.47012
+# b=1.90089
+# c=0.10895
+# do.call(fol.quad, args = list(dbh, a, b, c)) ## 195 m2 @ dbh 35
+# 
+# ## Callery pear example
+# dbh=35
+# a=-1.86944
+# b=5.60849
+# c=0.20744
+# do.call(fol.loglogw1, args = list(dbh, a, b, c)) ## 219 m2 @ dbh 35
+# 
+# ## Platanus example
+# dbh=35
+# a=-2.06877
+# b=5.77886
+# c=0.27978
+# do.call(fol.loglogw1, args = list(dbh, a, b, c)) ## 232 m2 @ dbh 35
+# 
+# ## Fraxinus example
+# dbh=35
+# a=-1.51177
+# b=5.39015
+# c=0.06139
+# do.call(fol.loglogw2, args = list(dbh, a, b, c)) ## 257 m2 @ dbh 35
+# 
+# ## Q.rubra example
+# dbh=35
+# a=-3.02473
+# b=1.36611
+# c=0.20228
+# d=-0.00112
+# do.call(fol.cub, args = list(dbh, a, b, c, d)) ## 244 m2 @ dbh 35
+# ### acceptable 
+
+## push leaf area coefficients/equations into the street record
+
+street[,fol.eq.form:=taxa[match(street[,Species], taxa$Species), fol.eq.form]]
+street[,fol.a:=taxa[match(street[,Species], taxa$Species), fol.a]]
+street[,fol.b:=taxa[match(street[,Species], taxa$Species), fol.b]]
+street[,fol.c:=taxa[match(street[,Species], taxa$Species), fol.c]]
+street[,fol.d:=taxa[match(street[,Species], taxa$Species), fol.d]]
+
+# street[!is.na(fol.eq.form), length(fol.eq.form)]/dim(street)[1] ## 94.3% get a matching equation out of the lookup table
+street[fol.eq.form=="loglogw1", fol.area.m2:=do.call(fol.loglogw1, 
+                                                     args=list(dbh.2006, fol.a, fol.b, fol.c))
+       ]
+street[fol.eq.form=="loglogw2", fol.area.m2:=do.call(fol.loglogw2, 
+                                                     args=list(dbh.2006, fol.a, fol.b, fol.c))
+       ]
+street[fol.eq.form=="cub", fol.area.m2:=do.call(fol.cub, 
+                                                     args=list(dbh.2006, fol.a, fol.b, fol.c, fol.d))
+       ]
+street[fol.eq.form=="quad", fol.area.m2:=do.call(fol.quad, 
+                                                args=list(dbh.2006, fol.a, fol.b, fol.c))
+       ]
+
+summary(street[record.good==1 & !is.na(fol.eq.form), fol.area.m2]); hist(street[record.good==1 & !is.na(fol.eq.form), fol.area.m2]) ## 75% below 250 m2
+
+## try to match up foliar dw/m2
+dw <- fread("H:/FragEVI/docs/RDS-2016-0005/Data/TS5_Foliar_biomass_leaf_samples.csv") ## the raw file has errors in coefficient a that fuck up the read in, have manually deleted
+# class(fol$a) ## numeric, we're fine
+dw <- dw[Region=="NoEast",]
+dw[`Scientific Name`=="Malus sp.", `Scientific Name`:="Malus spp."]
+dw[`Scientific Name`=="Platanus hybrida", `Scientific Name`:="Platanus acerifolia"]
+
+## push into the taxa keeper and groom
+taxa[,dw.m2:=dw$`Avg dw g/m2`[match(taxa$Species, dw$`Scientific Name`)]]
+# taxa[is.na(dw.m2), sum(num.rec)]/taxa[,sum(num.rec)] ## 5.6% don't get a foliar dw/m2
+taxa[, dw.fill.flag:=0] ## flag which equations are getting an interpreted equation rather than a direct lookup
+
+## for those you subbed allometrics into: fill in dw leaf for Ulmus spp. (-->U. americana) and Tilia americana (-->T. cordata)
+taxa[Species=="Ulmus", dw.m2:=dw[`Scientific Name`=="Ulmus americana", `Avg dw g/m2`]]
+taxa[Species=="Tilia americana", dw.m2:=dw[`Scientific Name`=="Tilia cordata", `Avg dw g/m2`]]
+# taxa[is.na(dw.m2), sum(num.rec)]/taxa[,sum(num.rec)] ## now 2.8% don't get a foliar dw/m2
+taxa[is.na(dw.m2), dw.fill.flag:=1]
+
+### match street with dw/m2 values and then fill the holes with the weighted average across the good records
+dw.wavg <- sum(taxa[,(num.rec*dw.m2)], na.rm=T)/taxa[,sum(num.rec, na.rm=T)] ## about 102 g/m2 
+taxa[is.na(dw.m2), dw.m2:=dw.wavg]
+street[,dw.m2:=taxa[match(street[,Species], taxa$Species), dw.m2]]
+street[record.good==1 & is.na(dw.m2), length(dbh.2006)]/dim(street[record.good==1,]) ## we've at least got a filled avg dw.m2 for every record
+
+## calculate foliar biomass
+street[,fol.biom.kg:=fol.area.m2*dw.m2/1000]
+hist(street[record.good==1, fol.biom.kg]); summary(street[record.good==1, fol.biom.kg]) ## 75% below 26 kg/tree
+street[record.good==1 & is.na(fol.biom.kg), length(dbh.2006)]/dim(street[record.good==1,])[1] ## still missing 2.5% of records with no foliar biomass
+
+## apply default foliar biomass ratio from jenkins to get the remainders, once you have AG biomass figured out....
+
+##
+### REV UP YER SHITS, ITS TIME TO SLOT IN ALL THEM BIOMASS 
+## kill some extraneous street data fields that are fucking things up
+street[,c("biom.2006", "biom.2014", "npp.ann", "npp.ann.rel", "delta.diam", "diam.rate", "biomass.2006", "biomass.2014"):=NULL]
+
+# biom.urb <- fread("H:/FragEVI/docs/RDS-2016-0005/Data/TS7_Volume_eqns_from_urban.csv") ## scratch -- this is a pain in the dick-hole, go with the manually produced one from FragEVI
+# biom.urb[`Equation Species`%in%street[record.good==1, unique(Species)], unique(`Equation Species`)] ## OK, I've mined this for all the species that might appear in my street record
+biom.urb <- fread("H:/BosBiog/docs/street.biometrics.V2.csv") ## taken from TS7 these list Vol + dbh-->Vol (Vol(m3)=b0*dbh(cm)^b1)
+biom.rur <- fread("H:/FragEVI/docs/RDS-2016-0005/Data/TS8_Volume_and_biomass_eqns_from_rural.csv")
+biom.rur <- biom.rur[`Equation Species`%in%street[record.good==1, unique(Species)],] ## A.rubrum, Fagus grandif., Q.rubra
+dens.dat <- fread("H:/BosBiog/docs/wood.dens.NAmer.csv") ## exerpt from Zanne Global wood density database
+dens.dat[,dens.kg.m3:=`Wood density (g/cm^3), oven dry mass/fresh volume`*1000] ## correct to kg/m3
+
+## update the crosswalk sheet with whatever you could find in terms of wood density
+taxa[,kg.m3:=biom.urb[match(Species, biom.urb$equation), dens]] ## slot in the wood density you found in the urban biomass allometric sheet (TS7) (none available in rural biomass equations sheet TS8)
+taxa[is.na(kg.m3), kg.m3:=dens.dat[match(Species, dens.dat$Binomial), dens.kg.m3]] ## fill in gaps with wood density in global wood database (no density avail in overlapping biom.rur records)
+## manual fill from what I can find in Table 11 of McPherson
+taxa[Species=="Aesculus hippocastanum", kg.m3:=500]
+taxa[Species=="Catalpa", kg.m3:=380] ## Catalpa speciosa
+taxa[Species=="Crataegus", kg.m3:=520] ## Crataegus spp.
+taxa[Species=="Fagus grandifolia", kg.m3:=585] ## differs from Zanne
+taxa[Species=="Ginkgo biloba", kg.m3:=520]
+taxa[Species=="Koelreuteria paniculata", kg.m3:=620]
+taxa[Species=="Malus spp.", kg.m3:=610]
+taxa[Species=="Prunus serrulata", kg.m3:=560] ## P.serrulata or P. spp.
+taxa[Species=="Pyrus calleryana", kg.m3:=600] ## Pyrus spp.
+taxa[Species=="Ulmus", kg.m3:=460] ## U. americana
+kg.m3.wavg <- taxa[!is.na(kg.m3), sum(num.rec*kg.m3)]/taxa[!is.na(kg.m3), sum(num.rec)] ## 508 kg/m3 weighted average for everything I've got
+taxa[!is.na(kg.m3), dens.fill.flag:=0]
+taxa[is.na(kg.m3), dens.fill.flag:=1]
+taxa[is.na(kg.m3), kg.m3:=kg.m3.wavg]
+# taxa[dens.fill.flag==1, sum(num.rec)]/taxa[,sum(num.rec)] ## we only needed to fill wood density on 2% of the records
+
+### calculate biomass in street in this order: 1)urban and 2)rural, then fill in the gen urban last
+taxa[, biom.b0:=biom.urb[match(taxa$Species, biom.urb$equation), b0]]
+taxa[, biom.b1:=biom.urb[match(taxa$Species, biom.urb$equation), b1]]
+taxa[,fill.biom.flag:=0]
+taxa[is.na(biom.b0), fill.biom.flag:=1]
+taxa[fill.biom.flag==1, sum(num.rec)]/taxa[,sum(num.rec)] ## we don't have an "urban" volume equation for 21% of tree records
+
+### calculate the ones for which we have a true urban-specific vol-->biomass equation
+street[, biom.2006:=(taxa[match(street$Species, taxa[,Species]), biom.b0]*
+                       (dbh.2006^(taxa[match(street$Species, taxa[,Species]), biom.b1])))*
+         taxa[match(street$Species, taxa[,Species]), kg.m3]
+       ]
+street[record.good==1 & !is.na(biom.2006), length(biom.2006)]/street[record.good==1, length(record.good)]
+
+## manually add in the 3 rural direct biomass equations we have from TS8
+street[record.good==1 & Species=="Acer rubrum", biom.2006:=0.1970*(dbh.2006^2.1933)]
+street[record.good==1 & Species=="Fagus grandifolia", biom.2006:=0.1957*(dbh.2006^2.3916)]
+oak.fun <- function(x, a, b, c, d){a*(x^b)-exp(c+d/x)}
+street[record.good==1 & Species=="Quercus rubra", biom.2006:=oak.fun(dbh.2006, 0.1130, 2.4572, -4.0813, 5.8816)]
+# oak.fun(30, 0.1130, 2.4572, -4.0813, 5.8816)
+# plot(1:60, oak.fun(1:60, 0.1130, 2.4572, -4.0813, 5.8816)) ### seems reasonable in the absense of other objections
+street[record.good==1 & !is.na(biom.2006), length(biom.2006)]/street[record.good==1, length(record.good)] ## up to 84% of records
+
+### McPherson doesn't say whether to prefer the generalized urban broadleaf or the somewhat more sub-categorized rural-derived equations
+### he does, however, recommend fitting wood density as close as possible to species since these can vary a lot between species
+street[record.good==1 & is.na(biom.2006),] ## 413 records to fill for AG biomass
+street[record.good==1 & is.na(biom.2006), biom.2006:=(biom.urb[equation=="Urb Gen Broadleaf", b0]*
+                                                        (dbh.2006^biom.urb[equation=="Urb Gen Broadleaf", b1]))*
+         taxa[match(street[record.good==1 & is.na(biom.2006), Species], taxa[,Species]), kg.m3]
+       ]
+street[record.good==1 & !is.na(biom.2006), length(biom.2006)]/street[record.good==1, length(record.good)] ## That fills in the remaining records using UrbGenBroadleaf*Specific wood density
+
+## update taxa compendium with the proper equations
+taxa[is.na(biom.b0), biom.b0:=biom.urb[equation=="Urb Gen Broadleaf", b0]] ## McPherson's general urban broadleaf volume allometry
+taxa[is.na(biom.b1), biom.b1:=biom.urb[equation=="Urb Gen Broadleaf", b1]] ## should have an exhaustive list for biomass now
+
+hist(street[record.good==1, biom.2006]); summary(street[record.good==1, biom.2006]) ## most below 750kg, one is 15k???
+View(street[record.good==1 & biom.2006>1000,]) ## these are the 400 or so honking big trees
+hist(street[record.good==1 & biom.2006>1000, dbh.2006]) ## a few massive fuckers, most below 80cm
+street[record.good==1 & biom.2006>5000,] ## 11 with dbh >93cm, Oak, elm, 1 ash; honkers >10k kg are 
+### the Fraxinus and Ulmus equations are good up to >110cm and the Quercus other than rubra are good to 135cm (under UrbGenBroadleaf), but Q.rubra is only good to 50cm, and they're the top 5 honkers
+### switch Q.rubra biomass back to UrbGenBroadleaf (coefficients already subbed to UrbGenBroadleaf in taxa)
+street[record.good==1 & Species=="Quercus rubra", biom.2006:=taxa[match(street[record.good==1 & Species=="Quercus rubra", Species],taxa[,Species]), biom.b0]*
+         (dbh.2006^taxa[match(street[record.good==1 & Species=="Quercus rubra", Species],taxa[,Species]), biom.b1])*
+         taxa[match(street[record.good==1 & Species=="Quercus rubra", Species], taxa[,Species]), kg.m3]]
+hist(street[record.good==1, biom.2006]); summary(street[record.good==1, biom.2006]) ## most below 750kg, one is 15k???
+View(street[record.good==1 & biom.2006>1000,]) ## these are the 400 or so honking big trees
+hist(street[record.good==1 & biom.2006>1000, dbh.2006]) ## a few massive fuckers, most below 80cm
+street[record.good==1 & biom.2006>5000,] ## somewhat more reasonable, just one giant honking 122cm Q.rubra at 11k kg (!!!), most below 7k kg 
+
+## Need to add bullshit on 1.28*AG biomass for roots
+## push these calcs into the streettree simulator module and use these equations.
+
+### OK: Now with taxa you can calculate the important parameters needed for biomass components based entirely on McPherson
+
+######
+
+
+
 ##### PART 2: STREET TREE SIMULATOR
 ######
 ### Simulator version history
