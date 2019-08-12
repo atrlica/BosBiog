@@ -946,6 +946,7 @@ fwrite(street, file="H:/BosBiog/processed/street.trees.dbh2.csv")
 
 
 library(data.table)
+library(compiler)
 setwd("/projectnb/buultra/atrlica/BosBiog/")
 
 ### urban-specific allometrics
@@ -960,49 +961,51 @@ taxa <- fread("processed/taxa.growth.eqs.csv") ## this stores most of the shit y
 ## to get basal area and biomass of stems --- static biomass growth prediction
 # ba <- function(x){(((((x/2)^2)*pi)/900))} ## this is in m2/ha (correct for 900m2 pixel footprint)
 ba <- function(x){(((x/2)^2)*pi)/1E4} ### to find JUST the BA of a tree based on dbh (in m2)
+ba <- cmpfun(ba)
+dbh.incr <- function(x, b0, b1, b2){b0+(b1*x)+(b2*(x^2))}
+dbh.incr <- cmpfun(dbh.incr)
+
 ## equations for estimating foliage area from dbh (cm-->m2)
 fol.loglogw1 <- function(x, a, b, c){exp(a+(b*log(log(x+1)))+(c/2))}
+fol.loglogw1 <- cmpfun(fol.loglogw1)
 fol.loglogw2 <- function(x, a, b, c){exp(a+(b*log(log(x+1)))+(sqrt(x)*(c/2)))}
+fol.loglogw2 <- cmpfun(fol.loglogw2)
 fol.quad <- function(x, a, b, c){a+(b*x)+(c*(x^2))}
+fol.quad <- cmpfun(fol.quad)
 fol.cub <- function(x, a, b, c, d){a+(b*x)+(c*(x^2))+(d*(x^3))}
+fol.cub <- cmpfun(fol.cub)
 fol.fill <- function(x){exp(-1.5386+(-0.2875*log(x)))} ## fill-in foliage biomass estimator (biomass kg-->foliar fraction of total biomass)
+fol.fill <- cmpfun(fol.fill)
 
 #### THIS CODE CHUNK produces simulation diagnostics, does the growth calculations using the saved object files and exports and R objects.
 #### THE NEXT CODE CHUNK reloads the R objects and reconstructs a map file with all the different iterations of NPP
 
-### line up a list of randomly selected coefficients for the operatie dbh~growth model
-## mod Feb 11 2019 -- make it 1000 long
-load("processed/mod.street.dbhdelta.me.sav") ## polynomial mixed effect with species
-b0.rand <- rnorm(1000, mean=coef(summary(mod.street.dbhdelta.me))[1,1], sd=coef(summary(mod.street.dbhdelta.me))[1,2])
-b1.rand <- rnorm(1000, mean=coef(summary(mod.street.dbhdelta.me))[2,1], sd=coef(summary(mod.street.dbhdelta.me))[2,2])
-b2.rand <-rnorm(1000, mean=coef(summary(mod.street.dbhdelta.me))[3,1], sd=coef(summary(mod.street.dbhdelta.me))[3,2])
-
-# x <- 1:100
-# plot(x, mean(b0.rand)+(mean(b1.rand)*x)+(mean(b2.rand)*(x^2))) ## looks like a believable growth curve
-
-#### import results objects pulled from parallel processing on the cluster (chunks of 10k pixels)
+### import results objects pulled from parallel processing on the cluster (chunks of 10k pixels)
 vers <- 7 ## which simulator model run are we picking at
+realize <- 100 ## how many separate realizations per pixel to run
 obj.dump <- list.files("processed/boston/biom_street/")
 npp.dump <- obj.dump[grep(obj.dump, pattern = paste("dbh.street.v", vers, ".weighted*", sep=""))] ## use npp empty file as a way of organizing the work
 npp.dump.chunks <- sub('.*weighted.', '', npp.dump)
 npp.dump.chunks <- sub("\\.sav.*", "", npp.dump.chunks)
 
-##### process each pixel chunk
-AG.npp.random <- list() ## chunkwise container for AG.npp simulations (aboveground biomass change)
-AGR.npp.random <- list() ## chunkwise container for AGR.NPP simulations (aboveground+root biomass change)
-fol.npp.random <- list() ## chunkwise container for foliage NPP simulations (first year annual foliar biomass)
+### line up a list of randomly selected coefficients for the operatie dbh~growth model
+load("processed/mod.street.dbhdelta.me.sav") ## polynomial mixed effect with species
+b0.rand <- rnorm(realize, mean=coef(summary(mod.street.dbhdelta.me))[1,1], sd=coef(summary(mod.street.dbhdelta.me))[1,2])
+b1.rand <- rnorm(realize, mean=coef(summary(mod.street.dbhdelta.me))[2,1], sd=coef(summary(mod.street.dbhdelta.me))[2,2])
+b2.rand <- rnorm(realize, mean=coef(summary(mod.street.dbhdelta.me))[3,1], sd=coef(summary(mod.street.dbhdelta.me))[3,2])
+# x <- 1:100
+# plot(x, mean(b0.rand)+(mean(b1.rand)*x)+(mean(b2.rand)*(x^2))) ## looks like a believable growth curve
+
+### set up results containers
+# AG.npp.random <- list() ## chunkwise container for AG.npp simulations (aboveground biomass change)
+# AGR.npp.random <- list() ## chunkwise container for AGR.NPP simulations (aboveground+root biomass change)
+# fol.npp.random <- list() ## chunkwise container for foliage NPP simulations (first year annual foliar biomass)
 pix.diag <- data.frame() ## chunkwise collected pixel diagnostics for all simulations (also tracks pix.ID in order of processing)
 med.pix <- data.frame() ## chunkwise summary of pixel collection in the ID'd median pixel
 
-# AG.npp.random <- matrix(nrow=1.1E5, ncol=2000) ## chunkwise container for AG.npp simulations (aboveground biomass change)
-# AGR.npp.random <- matrix(nrow=1.1E5, ncol=2000) ## chunkwise container for AGR.NPP simulations (aboveground+root biomass change)
-# fol.npp.random <- matrix(nrow=1.1E5, ncol=2000) ## chunkwise container for foliage NPP simulations (first year annual foliar biomass)
-
-
-# ### for each pixel, get median estimated npp, median # trees
-# container <- data.frame()
-# med.dbh.rec <- numeric() ## keep a running tally of the dbh of every tree in the nearest-to-median-npp sample in each pixel
-# dbh.dump <- list() ## a place to put actual dbh samples from targeted retrievals for deeper analysis (e.g. what do the median retrievals look like?)
+AG.npp.random <- matrix(nrow=1.1E5, ncol=realize) ## matrix for AG.npp simulations (aboveground biomass change)
+AGR.npp.random <- matrix(nrow=1.1E5, ncol=realize) ## matrix for AGR.NPP simulations (aboveground+root biomass change)
+fol.npp.random <- matrix(nrow=1.1E5, ncol=realize) ## matrix for foliage NPP simulations (first year annual foliar biomass)
 
 ### get a mass list of the dbh/genus/spp of the selected median pixel collections (i.e. one collection per pixel)
 med.genus.track <- character() ## just pre-allocating as best I can
@@ -1066,20 +1069,28 @@ for(c in 1:length(npp.dump)){
   
   ### now get the dbh/genus/spp collection for every simulation in every pixel, summarize the median pixel, and calculate NPP components for randomly selected simulations
   load(paste("processed/boston/biom_street/dbh.street.v", vers, ".weighted.", npp.dump.chunks[c], ".sav", sep="")) ## comes in as "dbh.stret.small" object
-  ba.grand <- rep(9999, length(cage.dbh)) ## BA values for the retreival nearest median simulated biomass
-  dbh.grand <- rep(9999, length(cage.dbh)) ## dbh values for the retreival nearest median simulated biomass
-  num.grand <- rep(9999, length(cage.dbh)) ## tree number for retreival nearest median sim'd biomass
+  ba.grand <- rep(99999, length(cage.dbh)) ## BA values for the retreival nearest median simulated biomass
+  dbh.grand <- rep(99999, length(cage.dbh)) ## dbh values for the retreival nearest median simulated biomass
+  num.grand <- rep(99999, length(cage.dbh)) ## tree number for retreival nearest median sim'd biomass
   print(paste("patience! Doing pixel-level growth simulations and median pixel properties on chunk", npp.dump.chunks[c]))
+  
   for(b in 1:length(cage.dbh)){ ## b is an individual pixel, with 100 separately simulated dbh collections in each
+    ### scrub the badly labeled species names first
+    cleanup1 <- function(x){x[x=="Gleditsia triacanthos var. inerm"] <- "Gleditsia triacanthos"; return(x)}
+    cleanup2 <- function(x){x[x=="Ginko biloba"] <- "Ginkgo biloba"; return(x)}
+    cage.spp[[b]] <- lapply(cage.spp[[b]], FUN=cleanup1)
+    cage.spp[[b]] <- lapply(cage.spp[[b]], FUN=cleanup2)
     
     if(length(cage.dbh[[b]])<5){  ## if too few successful sims were made for this pixel
       ba.grand[b] <- NA
       dbh.grand[b] <- NA
       num.grand[b] <- NA
-      AG.npp.random[[b]] <- rep(NA, 1000) ## fill the potential NPP estimates with NAs
-      AGR.npp.random[[b]] <- rep(NA, 1000)
-      fol.npp.random[[b]] <- rep(NA, 1000)
-            
+      # AG.npp.random[[b]] <- rep(NA, 1000) ## fill the potential NPP estimates with NAs
+      # AGR.npp.random[[b]] <- rep(NA, 1000)
+      # fol.npp.random[[b]] <- rep(NA, 1000)
+      AG.npp.random[b,] <- rep(NA, realize) ## fill the potential NPP estimates with NAs
+      AGR.npp.random[b,] <- rep(NA, realize)
+      fol.npp.random[b,] <- rep(NA, realize)
     } else{
       ## first summarize the median pixel
       dbh.grand[b] <- median(cage.dbh[[b]][[pix.diag$med.pix.ID[pix.diag$pix.ID==index.track[b]]]]) ## median dbh of the median pixel
@@ -1090,84 +1101,147 @@ for(c in 1:length(npp.dump)){
       med.genus.track <- c(med.genus.track, cage.genus[[b]][[pix.diag$med.pix.ID[pix.diag$pix.ID==index.track[b]]]])
       med.spp.track <- c(med.spp.track, cage.spp[[b]][[pix.diag$med.pix.ID[pix.diag$pix.ID==index.track[b]]]])
       med.dbh.track <- c(med.dbh.track, cage.dbh[[b]][[pix.diag$med.pix.ID[pix.diag$pix.ID==index.track[b]]]])
-      ### need to clean these up for G.triacanthos and G.biloba
+      ### these get cleaned for G.triacanthos and G.biloba during growth processing
       
       ## Calculate NPP using the dbh increment model and the appointed allometrics
       ## apply all 1000 combinations of dbh growth coefficients, using a new random simuation each time
-      AG.npp.random[[b]] <- rep(99999, 1000) ## this is where we are storing the vectors (1000 long) of npp estimates for each pixel
-      AGR.npp.random[[b]] <- rep(99999, 1000)
-      fol.npp.random[[b]] <- rep(99999, 1000)
-      for(p in 1:1000){  ## individual entries in cage.dbh are pixels, which contain vectors of dbh collections
-          dbh.rand <- sample(1:length(cage.dbh[[b]]), size=1) ## randomly select a dbh collection
-          tmp.dbh0 <- cage.dbh[[b]][[dbh.rand]] ### dbh collection at time 0
-          tmp.spp <- cage.spp[[b]][[dbh.rand]] ## species of dbh collection
+      # AG.npp.random[[b]] <- rep(99999, 1000) ## this is where we are storing the vectors (1000 long) of npp estimates for each pixel
+      # AGR.npp.random[[b]] <- rep(99999, 1000)
+      # fol.npp.random[[b]] <- rep(99999, 1000)
+      
+      ### dbh increment model realizations x1000
+      ## ideally I could grab dbh.rand elements and then apply the dbh.incr coefficients in turn all at once
+      ## vectorize the dbh increment and biomass calcs
+      dbh.rand <- sample(1:length(cage.dbh[[b]]), size=realize, replace=T) ## randomly select a dbh collection
+    
+      # ee <- matrix(nrow=1000, data=(cage.dbh[[b]][dbh.rand]))
+      #         cage.dbh[[b]][dbh.rand]
+      # 
+      # as.list(c(b0.rand[1:4], b1.rand[1:4], b2.rand[1:4]))
+      # dum <- function(x, a, b, c){x+a-b+c}
+      # gee <- list()
+      # gee[[1]] <- seq(1:7)
+      # gee[[2]] <- seq(2:5)
+      # gee[[3]] <- seq(4:9)
+      # rgs <- list()
+      # rgs[["a"]] <- c(1,1,1)
+      # rgs[["b"]] <- c(10,1,5)
+      # rgs[["c"]] <- c(0,0,0)
+      # lapply(gee, FUN=dum, a=rgs$a, b=rgs$b, c=rgs$c)
+      # lapply(gee, FUN=dum, a=rgs[1], b=rgs[2], c=rgs[3])
+      # mapply(gee, FUN=dum, MoreArgs = rgs)
+      # dd <- lapply(cage.dbh[[b]][dbh.rand], FUN=dbh.incr, b0=as.list(b0.rand[1:4]), b1=as.list(b1.rand[1:4]), b2=as.list(b2.rand[1:4]))
+      # tt <- mapply(FUN = dbh.incr, cage.dbh[[b]][dbh.rand], MoreArgs = list(b0=list(b0.rand[1:4]), b1=list(b1.rand[1:4]), b2=list(b2.rand[1:4]))) ## this doesn't seem to work
+      # dbh.incr(cage.dbh[[b]][[dbh.rand[1]]], b0.rand[1], b1.rand[1], b2.rand[1])
+      # 
+      # do.call(dbh.incr, args = list(cage.dbh[[b]][[1]], b0.rand[1], b1.rand[1], b2.rand[1]))
+      # lapply(cage.dbh[[b]][dbh.rand], FUN = )
+      
+      ## preselecting the whole thing here is slower than using simple vectors below
+      # dbh.rand <- sample(1:length(cage.dbh[[b]]), size=1000, replace=T) ## randomly select a dbh collection
+      # tmp.dbh0 <- cage.dbh[[b]][dbh.rand] ### dbh collection at time 0
+      # tmp.spp <- cage.spp[[b]][dbh.rand] ## species of dbh collection
+      AG.dump <- rep(99999, realize)
+      AGR.dump <- rep(99999, realize)
+      fol.dump <- rep(99999, realize)
+      for(p in 1:realize){  ## individual entries in cage.dbh are pixels, which contain vectors of dbh collections
+          # tmp.dbh0 <- cage.dbh[[b]][[dbh.rand]] ### dbh collection at time 0
+          # tmp.spp <- cage.spp[[b]][[dbh.rand]] ## species of dbh collection
           ## fix names in tmp.spp so you can successfully look up the biomass allometrics
-          tmp.spp[tmp.spp=="Gleditsia triacanthos var. inerm"] <- "Gleditsia triacanthos"
-          tmp.spp[tmp.spp=="Ginko biloba"] <- "Ginkgo biloba"
-
+          # tmp.spp[[p]][which(tmp.spp[[p]]=="Gleditsia triacanthos var.inerm")] <- "Gleditsia triacanthos"
+          # tmp.spp[[p]][which(tmp.spp[[p]]=="Ginko biloba")] <- "Ginkgo biloba"
+          
+          ### try data.table approach ## this is the same speed as the other approaches
+          y <- as.data.table(list(cage.dbh[[b]][[dbh.rand[p]]], cage.spp[[b]][[dbh.rand[p]]]))
+          y <- merge(y, taxa[,.(Species, fol.eq.form, fol.fill.flag, fol.a, fol.b, fol.c, fol.d, dw.m2, kg.m3, biom.b0, biom.b1)],
+                     by.x="V2", by.y="Species")
+          y[,biom0:=biom.b0*(V1^biom.b1)*kg.m3]
+          y[V2=="Acer rubrum", biom0:=0.1970*(V1^2.1933)]
+          y[V2=="Fagus grandifolia", biom0:=0.1957*(V1^2.3916)]
+          y[,dbh1:=(dbh.incr(V1, b0.rand[p], b1.rand[p], b2.rand[p]))+V1]
+          y[,biom1:=biom.b0*(dbh1^biom.b1)*kg.m3]
+          y[V2=="Acer rubrum", biom1:=0.1970*(dbh1^2.1933)]
+          y[V2=="Fagus grandifolia", biom1:=0.1957*(dbh1^2.3916)]
+          y[fol.eq.form=="loglogw1", fol.biom:=fol.loglogw1(V1, fol.a, fol.b, fol.c)*dw.m2/1000]
+          y[fol.eq.form=="loglogw2", fol.biom:=fol.loglogw2(V1, fol.a, fol.b, fol.c)*dw.m2/1000]
+          y[fol.eq.form=="cub", fol.biom:=fol.cub(V1, fol.a, fol.b, fol.c, fol.d)*dw.m2/1000]
+          y[fol.eq.form=="quad", fol.biom:=fol.quad(V1, fol.a, fol.b, fol.c)*dw.m2/1000]
+          y[fol.fill.flag==1, fol.biom:=fol.fill(biom0)*biom0]
+          y[,biom0.tot:=biom0*1.28]
+          y[,biom1.tot:=biom1*1.28]
+          
           ### fast match the genus to the specific allometric
           ## calculate starting biomass in aboveground
           ## nomatch=1 is for Acer campestre, which gets generalized urban broadleaf biomass allometric
-          tmp.biom0 <- taxa[match(tmp.spp, taxa$Species, nomatch=1), biom.b0]*(tmp.dbh0^taxa[match(tmp.spp, taxa$Species, nomatch=1), biom.b1])*taxa[match(tmp.spp, taxa$Species, nomatch=1), kg.m3]
+          # tmp.biom0 <- taxa[match(tmp.spp[[p]], taxa$Species, nomatch=1), biom.b0]*(tmp.dbh0[[p]]^taxa[match(tmp.spp[[p]], taxa$Species, nomatch=1), biom.b1])*taxa[match(tmp.spp[[p]], taxa$Species, nomatch=1), kg.m3]
           ## make special case for A.rubrum and F.grandifolia
-          tmp.biom0[tmp.spp=="Acer rubrum"] <- 0.1970*tmp.dbh0[tmp.spp=="Acer rubrum"]^2.1933
-          tmp.biom0[tmp.spp=="Fagus grandifolia"] <- 0.1957*tmp.dbh0[tmp.spp=="Fagus grandifolia"]^2.3916
+          # tmp.biom0[tmp.spp[[p]]=="Acer rubrum"] <- 0.1970*tmp.dbh0[[p]][tmp.spp[[p]]=="Acer rubrum"]^2.1933
+          # tmp.biom0[tmp.spp[[p]]=="Fagus grandifolia"] <- 0.1957*tmp.dbh0[[p]][tmp.spp[[p]]=="Fagus grandifolia"]^2.3916
           ## calculate with root biomass
-          tmp.biom0.tot <- 1.28*tmp.biom0
+          # tmp.biom0.tot <- 1.28*tmp.biom0
           
           ## grow the trees and recalc the biomass
-          tmp.dbh1 <- tmp.dbh0+(b0.rand[p]+(b1.rand[p]*tmp.dbh0)+(b2.rand[p]*(tmp.dbh0^2))) ## grow the dbh to time 1
-          tmp.biom1 <- taxa[match(tmp.spp, taxa$Species, nomatch=1), biom.b0]*(tmp.dbh1^taxa[match(tmp.spp, taxa$Species, nomatch=1), biom.b1])*taxa[match(tmp.spp, taxa$Species, nomatch=1), kg.m3]
+          # tmp.dbh1 <- dbh.incr(tmp.dbh0[[p]], b0.rand[p], b1.rand[p], b2.rand[p])+tmp.dbh0[[p]]
+          # tmp.biom1 <- taxa[match(tmp.spp[[p]], taxa$Species, nomatch=1), biom.b0]*(tmp.dbh1^taxa[match(tmp.spp[[p]], taxa$Species, nomatch=1), biom.b1])*taxa[match(tmp.spp[[p]], taxa$Species, nomatch=1), kg.m3]
           ## make special case for A.rubrum and F.grandifolia
-          tmp.biom1[tmp.spp=="Acer rubrum"] <- 0.1970*tmp.dbh1[tmp.spp=="Acer rubrum"]^2.1933
-          tmp.biom1[tmp.spp=="Fagus grandifolia"] <- 0.1957*tmp.dbh1[tmp.spp=="Fagus grandifolia"]^2.3916
+          # tmp.biom1[tmp.spp[[p]]=="Acer rubrum"] <- 0.1970*tmp.dbh1[tmp.spp[[p]]=="Acer rubrum"]^2.1933
+          # tmp.biom1[tmp.spp[[p]]=="Fagus grandifolia"] <- 0.1957*tmp.dbh1[tmp.spp[[p]]=="Fagus grandifolia"]^2.3916
           ## calculate with root biomass
-          tmp.biom1.tot <- 1.28*tmp.biom1
+          # tmp.biom1.tot <- 1.28*tmp.biom1
           
-          AG.npp.random[[b]][p] <- sum(tmp.biom1-tmp.biom0) ## store the change in biomass as an npp estimate
-          AGR.npp.random[[b]][p] <- sum(tmp.biom1.tot-tmp.biom0.tot)
+          # AGR.npp.random[[b]][p] <- sum(tmp.biom1.tot-tmp.biom0.tot)
+          
+          # AG.npp.random[[b]][p] <- sum(y[,biom1-biom0]) ## store the change in biomass as an npp estimate
+          # AGR.npp.random[[b]][p] <- sum(y[,biom1.tot-biom0.tot])
+          AG.dump[p] <- sum(y[,biom1-biom0]) ## store the change in biomass as an npp estimate
+          AGR.dump[p] <- sum(y[,biom1.tot-biom0.tot])
           
           ## get at foliar biomass in the first year (apply each equation set in turn, then do the default)
-          fol.tmp <- numeric()
-          fol.tmp <- c(fol.tmp, do.call(fol.loglogw1,
-                                        args=list(tmp.dbh0[taxa[match(tmp.spp, taxa$Species), fol.eq.form]=="loglogw1"],
-                                                  taxa[match(tmp.spp[taxa[match(tmp.spp, taxa$Species), fol.eq.form]=="loglogw1"], taxa$Species), fol.a],
-                                                  taxa[match(tmp.spp[taxa[match(tmp.spp, taxa$Species), fol.eq.form]=="loglogw1"], taxa$Species), fol.b],
-                                                  taxa[match(tmp.spp[taxa[match(tmp.spp, taxa$Species), fol.eq.form]=="loglogw1"], taxa$Species), fol.c]))*
-                         taxa[match(tmp.spp[taxa[match(tmp.spp, taxa$Species), fol.eq.form]=="loglogw1"], taxa$Species), dw.m2]/1000)
+          # fol.tmp <- numeric()
+          # fol.tmp <- c(fol.tmp, do.call(fol.loglogw1,
+          #                               args=list(tmp.dbh0[[p]][taxa[match(tmp.spp[[p]], taxa$Species), fol.eq.form]=="loglogw1"],
+          #                                         taxa[match(tmp.spp[[p]][taxa[match(tmp.spp[[p]], taxa$Species), fol.eq.form]=="loglogw1"], taxa$Species), fol.a],
+          #                                         taxa[match(tmp.spp[[p]][taxa[match(tmp.spp[[p]], taxa$Species), fol.eq.form]=="loglogw1"], taxa$Species), fol.b],
+          #                                         taxa[match(tmp.spp[[p]][taxa[match(tmp.spp[[p]], taxa$Species), fol.eq.form]=="loglogw1"], taxa$Species), fol.c]))*
+          #                taxa[match(tmp.spp[[p]][taxa[match(tmp.spp[[p]], taxa$Species), fol.eq.form]=="loglogw1"], taxa$Species), dw.m2]/1000)
+          # 
+          # fol.tmp <- c(fol.tmp, do.call(fol.loglogw2,
+          #                               args=list(tmp.dbh0[[p]][taxa[match(tmp.spp[[p]], taxa$Species), fol.eq.form]=="loglogw2"],
+          #                                         taxa[match(tmp.spp[[p]][taxa[match(tmp.spp[[p]], taxa$Species), fol.eq.form]=="loglogw2"], taxa$Species), fol.a],
+          #                                         taxa[match(tmp.spp[[p]][taxa[match(tmp.spp[[p]], taxa$Species), fol.eq.form]=="loglogw2"], taxa$Species), fol.b],
+          #                                         taxa[match(tmp.spp[[p]][taxa[match(tmp.spp[[p]], taxa$Species), fol.eq.form]=="loglogw2"], taxa$Species), fol.c]))*
+          #                      taxa[match(tmp.spp[[p]][taxa[match(tmp.spp[[p]], taxa$Species), fol.eq.form]=="loglogw2"], taxa$Species), dw.m2]/1000)
+          # 
+          # fol.tmp <- c(fol.tmp, do.call(fol.cub,
+          #                               args=list(tmp.dbh0[[p]][taxa[match(tmp.spp[[p]], taxa$Species), fol.eq.form]=="cub"],
+          #                                         taxa[match(tmp.spp[[p]][taxa[match(tmp.spp[[p]], taxa$Species), fol.eq.form]=="cub"], taxa$Species), fol.a],
+          #                                         taxa[match(tmp.spp[[p]][taxa[match(tmp.spp[[p]], taxa$Species), fol.eq.form]=="cub"], taxa$Species), fol.b],
+          #                                         taxa[match(tmp.spp[[p]][taxa[match(tmp.spp[[p]], taxa$Species), fol.eq.form]=="cub"], taxa$Species), fol.c],
+          #                                         taxa[match(tmp.spp[[p]][taxa[match(tmp.spp[[p]], taxa$Species), fol.eq.form]=="cub"], taxa$Species), fol.d]))*
+          #                      taxa[match(tmp.spp[[p]][taxa[match(tmp.spp[[p]], taxa$Species), fol.eq.form]=="cub"], taxa$Species), dw.m2]/1000)
+          # 
+          # fol.tmp <- c(fol.tmp, do.call(fol.quad,
+          #                               args=list(tmp.dbh0[[p]][taxa[match(tmp.spp[[p]], taxa$Species), fol.eq.form]=="quad"],
+          #                                         taxa[match(tmp.spp[[p]][taxa[match(tmp.spp[[p]], taxa$Species), fol.eq.form]=="quad"], taxa$Species), fol.a],
+          #                                         taxa[match(tmp.spp[[p]][taxa[match(tmp.spp[[p]], taxa$Species), fol.eq.form]=="quad"], taxa$Species), fol.b],
+          #                                         taxa[match(tmp.spp[[p]][taxa[match(tmp.spp[[p]], taxa$Species), fol.eq.form]=="quad"], taxa$Species), fol.c]))*
+          #                      taxa[match(tmp.spp[[p]][taxa[match(tmp.spp[[p]], taxa$Species), fol.eq.form]=="quad"], taxa$Species), dw.m2]/1000)
+          # 
+          # ## fill in values for taxa not represented as a simple log-log model of foliar biomass frac~total biomass
+          # fol.tmp <- c(fol.tmp, do.call(fol.fill,
+          #                               args=list(tmp.biom0[taxa[match(tmp.spp[[p]], taxa$Species), fol.fill.flag]==1]))*
+          #                taxa[match(tmp.spp[[p]][taxa[match(tmp.spp[[p]], taxa$Species), fol.fill.flag]==1], taxa$Species), dw.m2]/1000)
+          # fol.npp.random[[b]][p] <- sum(fol.tmp) ## store the year 0 annual foliar biomass as foliar NPP
+          fol.dump[p] <- y[,sum(fol.biom)]## store the year 0 annual foliar biomass as foliar NPP
           
-          fol.tmp <- c(fol.tmp, do.call(fol.loglogw1,
-                                        args=list(tmp.dbh0[taxa[match(tmp.spp, taxa$Species), fol.eq.form]=="loglogw2"],
-                                                  taxa[match(tmp.spp[taxa[match(tmp.spp, taxa$Species), fol.eq.form]=="loglogw2"], taxa$Species), fol.a],
-                                                  taxa[match(tmp.spp[taxa[match(tmp.spp, taxa$Species), fol.eq.form]=="loglogw2"], taxa$Species), fol.b],
-                                                  taxa[match(tmp.spp[taxa[match(tmp.spp, taxa$Species), fol.eq.form]=="loglogw2"], taxa$Species), fol.c]))*
-                         taxa[match(tmp.spp[taxa[match(tmp.spp, taxa$Species), fol.eq.form]=="loglogw2"], taxa$Species), dw.m2]/1000)
-          
-          fol.tmp <- c(fol.tmp, do.call(fol.cub,
-                                        args=list(tmp.dbh0[taxa[match(tmp.spp, taxa$Species), fol.eq.form]=="cub"],
-                                                  taxa[match(tmp.spp[taxa[match(tmp.spp, taxa$Species), fol.eq.form]=="cub"], taxa$Species), fol.a],
-                                                  taxa[match(tmp.spp[taxa[match(tmp.spp, taxa$Species), fol.eq.form]=="cub"], taxa$Species), fol.b],
-                                                  taxa[match(tmp.spp[taxa[match(tmp.spp, taxa$Species), fol.eq.form]=="cub"], taxa$Species), fol.c],
-                                                  taxa[match(tmp.spp[taxa[match(tmp.spp, taxa$Species), fol.eq.form]=="cub"], taxa$Species), fol.d]))*
-                         taxa[match(tmp.spp[taxa[match(tmp.spp, taxa$Species), fol.eq.form]=="cub"], taxa$Species), dw.m2]/1000)
-          
-          fol.tmp <- c(fol.tmp, do.call(fol.quad,
-                                        args=list(tmp.dbh0[taxa[match(tmp.spp, taxa$Species), fol.eq.form]=="quad"],
-                                                  taxa[match(tmp.spp[taxa[match(tmp.spp, taxa$Species), fol.eq.form]=="quad"], taxa$Species), fol.a],
-                                                  taxa[match(tmp.spp[taxa[match(tmp.spp, taxa$Species), fol.eq.form]=="quad"], taxa$Species), fol.b],
-                                                  taxa[match(tmp.spp[taxa[match(tmp.spp, taxa$Species), fol.eq.form]=="quad"], taxa$Species), fol.c]))*
-                         taxa[match(tmp.spp[taxa[match(tmp.spp, taxa$Species), fol.eq.form]=="quad"], taxa$Species), dw.m2]/1000)
-          
-          ## fill in values for taxa not represented as a simple log-log model of foliar biomass frac~total biomass
-          fol.tmp <- c(fol.tmp, do.call(fol.fill,
-                                        args=list(tmp.biom0[taxa[match(tmp.spp, taxa$Species), fol.fill.flag]==1]))*
-                         taxa[match(tmp.spp[taxa[match(tmp.spp, taxa$Species), fol.fill.flag]==1], taxa$Species), dw.m2]/1000)
-          fol.npp.random[[b]][p] <- sum(fol.tmp) ## store the year 0 annual foliar biomass as foliar NPP
           # print(paste("pixel", b, "npp calc", p))
           } ## end npp random estimator
       } ## end else check for number of retrievals
           print(paste("finished with pixel", b))
     if(b%%1000==0){print(b)}
+          AG.npp.random[b,] <- AG.dump
+          AGR.npp.random[b,] <- AGR.dump
+          fol.npp.random[b,] <- fol.dump
       i=i+1 ## keep track of number of pixels processed
     } ## end pixel loop n=b
   
@@ -1181,17 +1255,9 @@ for(c in 1:length(npp.dump)){
   save(AG.npp.random, file=paste("processed/boston/biom_street/results/AG.npp.random.v", vers, ".weighted.", npp.dump.chunks[c], ".sav", sep=""))
   save(AGR.npp.random, file=paste("processed/boston/biom_street/results/AGR.npp.random.v", vers, ".weighted.", npp.dump.chunks[c], ".sav", sep=""))
   save(fol.npp.random, file=paste("processed/boston/biom_street/results/fol.npp.random.v", vers, ".weighted.", npp.dump.chunks[c], ".sav", sep=""))
-  
-  # ## bind (static) results in container
-  # container <- rbind(container,
-  #                    cbind(tmp.index, tmp.biom, ## pixel index and map biomass
-  #                          tmp.num, dbh.grand, ba.grand, tmp.biom.sim, ## median npp and tree number for simulator run
-  #                          tmp.wts, tmp.num.sims, tmp.sim.incomp, tmp.attempts, tmp.proc, ### metrics for how well the simulator performed
-  #                          median(npp.random[[b]])) ## median npp for pixel w randomly selected dbh + model error
-  # )
 } ## end chunk c loop
 
-## this is very slow, ~15s to complete all 1000 realizations in each pixel
+## this is very slow, ~15s to complete all 1000 realizations in each pixel (~2 per 100)
 ## have vectorized to the extent that's obvious, and cutting the median pixel diagnostics doesn't speed it up
 
 # Collect simulation diagnostics and export
