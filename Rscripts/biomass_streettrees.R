@@ -307,376 +307,376 @@ library(lme4)
 #####
 
 ## PART 1a: Develop a comprehensive lookup table for necessary allometric equations
-#####
-## Step 0: Whip the species IDs into shape
-library(data.table)
-setwd("/projectnb/buultra/atrlica/FragEVI/")
-# setwd("H:/FragEVI/")
-street <- fread("processed/boston/street.trees.dbh.csv")
-street[Species=="Acer", Species:="Acer platanoides"] ## 4 un-ID'd Acer --> Norway
-street[Species=="Betula americana", Species:="Betula"] ## 1 un-ID's Betula, probably papyrifera but no species-specific allometrics anyway
-street[Species=="Celtis", Species:="Celtis occidentalis"] ## only 1 un-ID'd, and we have an allometric entry for Celtis occidentalis
-street[Species=="Fraxinus", Species:="Fraxinus pennsylvanica"] ## 24 un-ID'd fraxinus but much more likely to be penn. than americana
-street[Species=="Liquidambar", Species:="Liquidambar styraciflua"] ## 4 un-ID'd, almost certaintly American sweetgums
-street[Species=="Malus", Species:="Malus spp."] ## so the table lookup will work
-## 2 Magnolia -- can't say
-## 1 Morus -- can't say
-street[Species=="Prunus", Species:="Prunus serrulata"] ## 144 un-ID'd Prunus, I'll guess most are serrulata (Japanese cherry), which has an allometric entry
-street[Species=="Pyrus", Species:="Pyrus calleryana"] ## 150 Pyrus spp. byt I'd bet any random Pear is a Callery Pear
-street[Species=="Quercus", Species:="Quercus rubra"] ## 1 Quercus spp., most common by far is rubra (123 rubra vs ~50 all other spp.)
-## 111 Ulmus spp., 16 Ulmus european, 14 U. americana, 4 U. crassifolia -- no idea how to assign these, U. americana has some allometric entries
-street[Species=="Zelkova", Species:="Zelkova serrata"] ## 238 un-ID'd, serrata has an allometric entry
-## the rest don't lend themselves obviously to any neater arrangement
-### for simplicity, I'm going to eliminate the singular Pinus spp. in here so I don't have to write whole other lookups and defaults for it
-street <- street[Species!="Pinus resinosa",]
-t <- street[record.good==1,length(dbh.2006), by=Species]
-t <- t[order(t[,Species])]; t ## here's what we are dealing with
-
-## note here: "Platanus acerifolia" (street record) == "Platanus x aerifolia" (TS6) == "Platanus hybrida" (TS7, TS5)
-taxa <- street[record.good==1, length(Object_ID), by=Species] ## this needs some cleaning up, 68 unique
-taxa <- taxa[order(taxa[,Species]),] ## 38 unique Species ID in the good records
-names(taxa)[2] <- "num.rec"
-genspec <- strsplit(as.character(taxa$Species), " ")
-gen <- unlist(lapply(genspec, "[[", 1))
-taxa[,genus:=gen] ## 37 Spp
-
-## Step 1: match a leaf area equation to each unique species
-## read in Table S6 (growth equations) from McPherson and groom to region & predictors
-fol <- fread("docs/RDS-2016-0005/Data/TS6_Growth_coefficients.csv") ## the raw file has typos in coefficient column a that fuck up the read in, have manually deleted
-# class(fol$a) ## numeric, we're fine
-fol <- fol[Region=="NoEast" & `Independent variable`=="dbh" & `Predicts component`=="leaf area",]
-
-### HEADACHE: G. triacanthos in the simulator comes in as "Gleditsia triacanthos var. inerm".... will need to correct taxa to match along these lines
-### and G. biloba is still misspelled "Ginko biloba"
-fol[SpCode=="GLTR", `Scientific Name`:="Gleditsia triacanthos var. inerm"]
-## get equation form
-taxa[,fol.eq.form:=fol$EqName[match(taxa$Species, fol$`Scientific Name`)]]
-# taxa[is.na(fol.eq.form), sum(num.rec)]/taxa[,sum(num.rec)] ## 14% don't get a foliar equation
-taxa[, fol.fill.flag:=0] ## flag which equations are getting an interpreted equation rather than a direct lookup
-taxa[is.na(fol.eq.form), fol.fill.flag:=1]
-
-## retrieve equation coefficients
-taxa[,fol.a:=fol$a[match(taxa$Species, fol$`Scientific Name`)]]
-taxa[,fol.b:=fol$b[match(taxa$Species, fol$`Scientific Name`)]]
-taxa[,fol.c:=fol$c[match(taxa$Species, fol$`Scientific Name`)]]
-taxa[,fol.d:=fol$d[match(taxa$Species, fol$`Scientific Name`)]]
-## lump Acer and Ulmus, manually apply the Platanus acerifolia + Platanus occidentalis; Frax. pennsylvanica + Frax. americana; T. cordata + T. americana
-taxa[Species=="Platanus acerifolia", c("fol.eq.form", "fol.a", "fol.b", "fol.c", "fol.d"):=list(fol[match("Platanus x acerifolia", fol$`Scientific Name`), EqName],
-                                                                                                fol[match("Platanus x acerifolia", fol$`Scientific Name`), a],
-                                                                                                fol[match("Platanus x acerifolia", fol$`Scientific Name`), b],
-                                                                                                fol[match("Platanus x acerifolia", fol$`Scientific Name`), c],
-                                                                                                fol[match("Platanus x acerifolia", fol$`Scientific Name`), d])]
-taxa[Species=="Platanus acerifolia", fol.fill.flag:=0] ## this isn't a fill it was just done manually
-
-## if making these substitutions is a bridge too far, just comment this part out
-## 0 P. occidentalis in the groomed taxa record
-# taxa[Species=="Platanus occidentalis", c("fol.eq.form", "a", "b", "c", "d"):=list(fol[match("Platanus x acerifolia", fol$`Scientific Name`), EqName],
-#                                                                                 fol[match("Platanus x acerifolia", fol$`Scientific Name`), fol.a],
-#                                                                                 fol[match("Platanus x acerifolia", fol$`Scientific Name`), fol.b],
-#                                                                                 fol[match("Platanus x acerifolia", fol$`Scientific Name`), fol.c],
-#                                                                                 fol[match("Platanus x acerifolia", fol$`Scientific Name`), fol.d])]
-
-## 0 F. american in the groomed taxa record
-# taxa[Species=="Fraxinus americana", c("fol.eq.form", "a", "b", "c", "d"):=list(fol[match("Fraxinus pennsylvanica", fol$`Scientific Name`), EqName],
-#                                                                                 fol[match("Fraxinus pennsylvanica", fol$`Scientific Name`), fol.a],
-#                                                                                 fol[match("Fraxinus pennsylvanica", fol$`Scientific Name`), fol.b],
-#                                                                                 fol[match("Fraxinus pennsylvanica", fol$`Scientific Name`), fol.c],
-#                                                                                 fol[match("Fraxinus pennsylvanica", fol$`Scientific Name`), fol.d])]
-
-### 29 A. campestre and 1 A. pseudoplatanus in the groomed taxa record
-# taxa[genus=="Acer" & fol.fill.flag==1, c("fol.eq.form", "a", "b", "c", "d"):=list(fol[match("Acer platanoides", fol$`Scientific Name`), EqName],
-#                                                                                fol[match("Acer platanoides", fol$`Scientific Name`), fol.a],
-#                                                                                fol[match("Acer platanoides", fol$`Scientific Name`), fol.b],
-#                                                                                fol[match("Acer platanoides", fol$`Scientific Name`), fol.c],
-#                                                                                fol[match("Acer platanoides", fol$`Scientific Name`), fol.d])]
-
-## 55 Ulmus spp. in the groomed taxa record
-taxa[genus=="Ulmus" & fol.fill.flag==1, c("fol.eq.form", "fol.a", "fol.b", "fol.c", "fol.d"):=list(fol[match("Ulmus americana", fol$`Scientific Name`), EqName],
-                                                                                                   fol[match("Ulmus americana", fol$`Scientific Name`), a],
-                                                                                                   fol[match("Ulmus americana", fol$`Scientific Name`), b],
-                                                                                                   fol[match("Ulmus americana", fol$`Scientific Name`), c],
-                                                                                                   fol[match("Ulmus americana", fol$`Scientific Name`), d])]
-
-## 16 T. americana in the groomed taxa record
-taxa[Species=="Tilia americana" & fol.fill.flag==1, c("fol.eq.form", "fol.a", "fol.b", "fol.c", "fol.d"):=list(fol[match("Tilia cordata", fol$`Scientific Name`), EqName],
-                                                                                                               fol[match("Tilia cordata", fol$`Scientific Name`), a],
-                                                                                                               fol[match("Tilia cordata", fol$`Scientific Name`), b],
-                                                                                                               fol[match("Tilia cordata", fol$`Scientific Name`), c],
-                                                                                                               fol[match("Tilia cordata", fol$`Scientific Name`), d])]
-
-taxa[is.na(fol.eq.form), sum(num.rec)]/taxa[,sum(num.rec)] ## now only 2.5% of taxa with good records don't get a foliar equation
-
-### write functions to handle the different equation forms
-# taxa[,unique(fol.eq.form)]
-fol.loglogw1 <- function(x, a, b, c){exp(a+(b*log(log(x+1)))+(c/2))}
-fol.loglogw2 <- function(x, a, b, c){exp(a+(b*log(log(x+1)))+(sqrt(x)*(c/2)))}
-fol.quad <- function(x, a, b, c){a+(b*x)+(c*(x^2))}
-fol.cub <- function(x, a, b, c, d){a+(b*x)+(c*(x^2))+(d*(x^3))}
-
-# ### test foliar area predictions
-# ## Sweetgum example
-# dbh=35
-# a=-4.47012
-# b=1.90089
-# c=0.10895
-# do.call(fol.quad, args = list(dbh, a, b, c)) ## 195 m2 @ dbh 35
-#
-# ## Callery pear example
-# dbh=35
-# a=-1.86944
-# b=5.60849
-# c=0.20744
-# do.call(fol.loglogw1, args = list(dbh, a, b, c)) ## 219 m2 @ dbh 35
-#
-# ## Platanus example
-# dbh=35
-# a=-2.06877
-# b=5.77886
-# c=0.27978
-# do.call(fol.loglogw1, args = list(dbh, a, b, c)) ## 232 m2 @ dbh 35
-#
-# ## Fraxinus example
-# dbh=35
-# a=-1.51177
-# b=5.39015
-# c=0.06139
-# do.call(fol.loglogw2, args = list(dbh, a, b, c)) ## 257 m2 @ dbh 35
-#
-# ## Q.rubra example
-# dbh=35
-# a=-3.02473
-# b=1.36611
-# c=0.20228
-# d=-0.00112
-# do.call(fol.cub, args = list(dbh, a, b, c, d)) ## 244 m2 @ dbh 35
-# ### acceptable
-
-## push leaf area coefficients/equations into the street record
-
-street[,fol.eq.form:=taxa[match(street[,Species], taxa$Species), fol.eq.form]]
-street[,fol.a:=taxa[match(street[,Species], taxa$Species), fol.a]]
-street[,fol.b:=taxa[match(street[,Species], taxa$Species), fol.b]]
-street[,fol.c:=taxa[match(street[,Species], taxa$Species), fol.c]]
-street[,fol.d:=taxa[match(street[,Species], taxa$Species), fol.d]]
-
-# street[!is.na(fol.eq.form), length(fol.eq.form)]/dim(street)[1] ## 94.3% get a matching equation out of the lookup table
-street[fol.eq.form=="loglogw1", fol.area.m2:=do.call(fol.loglogw1,
-                                                     args=list(dbh.2006, fol.a, fol.b, fol.c))
-       ]
-street[fol.eq.form=="loglogw2", fol.area.m2:=do.call(fol.loglogw2,
-                                                     args=list(dbh.2006, fol.a, fol.b, fol.c))
-       ]
-street[fol.eq.form=="cub", fol.area.m2:=do.call(fol.cub,
-                                                args=list(dbh.2006, fol.a, fol.b, fol.c, fol.d))
-       ]
-street[fol.eq.form=="quad", fol.area.m2:=do.call(fol.quad,
-                                                 args=list(dbh.2006, fol.a, fol.b, fol.c))
-       ]
-
-summary(street[record.good==1 & !is.na(fol.eq.form), fol.area.m2]); hist(street[record.good==1 & !is.na(fol.eq.form), fol.area.m2]) ## 75% below 250 m2
-
-## try to match up foliar dw/m2
-dw <- fread("H:/FragEVI/docs/RDS-2016-0005/Data/TS5_Foliar_biomass_leaf_samples.csv") ## the raw file has errors in coefficient a that fuck up the read in, have manually deleted
-# class(fol$a) ## numeric, we're fine
-dw <- dw[Region=="NoEast",]
-dw[`Scientific Name`=="Malus sp.", `Scientific Name`:="Malus spp."]
-dw[`Scientific Name`=="Platanus hybrida", `Scientific Name`:="Platanus acerifolia"]
-
-## push into the taxa keeper and groom
-taxa[,dw.m2:=dw$`Avg dw g/m2`[match(taxa$Species, dw$`Scientific Name`)]]
-# taxa[is.na(dw.m2), sum(num.rec)]/taxa[,sum(num.rec)] ## 5.6% don't get a foliar dw/m2
-taxa[, dw.fill.flag:=0] ## flag which equations are getting an interpreted equation rather than a direct lookup
-
-## for those you subbed allometrics into: fill in dw leaf for Ulmus spp. (-->U. americana) and Tilia americana (-->T. cordata)
-taxa[Species=="Ulmus", dw.m2:=dw[`Scientific Name`=="Ulmus americana", `Avg dw g/m2`]]
-taxa[Species=="Tilia americana", dw.m2:=dw[`Scientific Name`=="Tilia cordata", `Avg dw g/m2`]]
-# taxa[is.na(dw.m2), sum(num.rec)]/taxa[,sum(num.rec)] ## now 2.8% don't get a foliar dw/m2
-taxa[is.na(dw.m2), dw.fill.flag:=1]
-
-### match street with dw/m2 values and then fill the holes with the weighted average across the good records
-dw.wavg <- sum(taxa[,(num.rec*dw.m2)], na.rm=T)/taxa[,sum(num.rec, na.rm=T)] ## about 102 g/m2
-taxa[is.na(dw.m2), dw.m2:=dw.wavg]
-street[,dw.m2:=taxa[match(street[,Species], taxa$Species), dw.m2]]
-street[record.good==1 & is.na(dw.m2), length(dbh.2006)]/dim(street[record.good==1,])[1] ## we've at least got a filled avg dw.m2 for every record
-
-## calculate foliar biomass
-street[,fol.biom.kg:=fol.area.m2*dw.m2/1000]
-hist(street[record.good==1, fol.biom.kg]); summary(street[record.good==1, fol.biom.kg]) ## 75% below 26 kg/tree
-street[record.good==1 & is.na(fol.biom.kg), length(dbh.2006)]/dim(street[record.good==1,])[1] ## still missing 2.5% of records with no foliar biomass
-
-## model foliar biomass fraction to fill in the remainders, once you have AG biomass figured out....
-
-### REV UP YER SHITS, ITS TIME TO SLOT IN ALL THEM BIOMASS
-## kill some extraneous street data fields that are fucking things up
-street[,c("biom.2006", "biom.2014", "npp.ann", "npp.ann.rel", "delta.diam", "diam.rate", "biomass.2006", "biomass.2014"):=NULL]
-
-# biom.urb <- fread("H:/FragEVI/docs/RDS-2016-0005/Data/TS7_Volume_eqns_from_urban.csv") ## scratch -- this is a pain in the dick-hole, go with the manually produced one from FragEVI
-# biom.urb[`Equation Species`%in%street[record.good==1, unique(Species)], unique(`Equation Species`)] ## OK, I've mined this for all the species that might appear in my street record
-biom.urb <- fread("H:/BosBiog/docs/street.biometrics.V2.csv") ## taken from TS7 these list Vol + dbh-->Vol (Vol(m3)=b0*dbh(cm)^b1)
-biom.rur <- fread("H:/FragEVI/docs/RDS-2016-0005/Data/TS8_Volume_and_biomass_eqns_from_rural.csv")
-biom.rur <- biom.rur[`Equation Species`%in%street[record.good==1, unique(Species)],] ## A.rubrum, Fagus grandif., Q.rubra
-dens.dat <- fread("H:/BosBiog/docs/wood.dens.NAmer.csv") ## exerpt from Zanne Global wood density database
-dens.dat[,dens.kg.m3:=`Wood density (g/cm^3), oven dry mass/fresh volume`*1000] ## correct to kg/m3
-
-## update the crosswalk sheet with whatever you could find in terms of wood density
-taxa[,kg.m3:=biom.urb[match(Species, biom.urb$equation), dens]] ## slot in the wood density you found in the urban biomass allometric sheet (TS7) (none available in rural biomass equations sheet TS8)
-taxa[is.na(kg.m3), kg.m3:=dens.dat[match(Species, dens.dat$Binomial), dens.kg.m3]] ## fill in gaps with wood density in global wood database (no density avail in overlapping biom.rur records)
-## manual fill from what I can find in Table 11 of McPherson
-taxa[Species=="Aesculus hippocastanum", kg.m3:=500]
-taxa[Species=="Catalpa", kg.m3:=380] ## Catalpa speciosa
-taxa[Species=="Crataegus", kg.m3:=520] ## Crataegus spp.
-taxa[Species=="Fagus grandifolia", kg.m3:=585] ## differs from Zanne
-taxa[Species=="Ginkgo biloba", kg.m3:=520]
-taxa[Species=="Koelreuteria paniculata", kg.m3:=620]
-taxa[Species=="Malus spp.", kg.m3:=610]
-taxa[Species=="Prunus serrulata", kg.m3:=560] ## P.serrulata or P. spp.
-taxa[Species=="Pyrus calleryana", kg.m3:=600] ## Pyrus spp.
-taxa[Species=="Ulmus", kg.m3:=460] ## U. americana
-kg.m3.wavg <- taxa[!is.na(kg.m3), sum(num.rec*kg.m3)]/taxa[!is.na(kg.m3), sum(num.rec)] ## 508 kg/m3 weighted average for everything I've got
-taxa[!is.na(kg.m3), dens.fill.flag:=0]
-taxa[is.na(kg.m3), dens.fill.flag:=1]
-taxa[is.na(kg.m3), kg.m3:=kg.m3.wavg]
-# taxa[dens.fill.flag==1, sum(num.rec)]/taxa[,sum(num.rec)] ## we only needed to fill wood density on 2% of the records
-
-### calculate biomass in street in this order: 1)urban and 2)rural, then fill in the gen urban last
-taxa[, biom.b0:=biom.urb[match(taxa$Species, biom.urb$equation), b0]]
-taxa[, biom.b1:=biom.urb[match(taxa$Species, biom.urb$equation), b1]]
-taxa[,fill.biom.flag:=0]
-taxa[is.na(biom.b0), fill.biom.flag:=1]
-taxa[fill.biom.flag==1, sum(num.rec)]/taxa[,sum(num.rec)] ## we don't have an "urban" volume equation for 21% of tree records
-
-### calculate the ones for which we have a true urban-specific vol-->biomass equation
-street[, biom.2006:=(taxa[match(street$Species, taxa[,Species]), biom.b0]*
-                       (dbh.2006^(taxa[match(street$Species, taxa[,Species]), biom.b1])))*
-         taxa[match(street$Species, taxa[,Species]), kg.m3]
-       ]
-street[record.good==1 & !is.na(biom.2006), length(biom.2006)]/street[record.good==1, length(record.good)]
-
-## manually add in the 3 rural direct biomass equations we have from TS8
-street[record.good==1 & Species=="Acer rubrum", biom.2006:=0.1970*(dbh.2006^2.1933)]
-street[record.good==1 & Species=="Fagus grandifolia", biom.2006:=0.1957*(dbh.2006^2.3916)]
-oak.fun <- function(x, a, b, c, d){a*(x^b)-exp(c+d/x)}
-street[record.good==1 & Species=="Quercus rubra", biom.2006:=oak.fun(dbh.2006, 0.1130, 2.4572, -4.0813, 5.8816)]
-# oak.fun(30, 0.1130, 2.4572, -4.0813, 5.8816)
-# plot(1:60, oak.fun(1:60, 0.1130, 2.4572, -4.0813, 5.8816)) ### seems reasonable in the absense of other objections
-street[record.good==1 & !is.na(biom.2006), length(biom.2006)]/street[record.good==1, length(record.good)] ## up to 84% of records
-
-### McPherson doesn't say whether to prefer the generalized urban broadleaf or the somewhat more sub-categorized rural-derived equations
-### he does, however, recommend fitting wood density as close as possible to species since these can vary a lot between species
-street[record.good==1 & is.na(biom.2006),] ## 413 records to fill for AG biomass
-street[record.good==1 & is.na(biom.2006), biom.2006:=(biom.urb[equation=="Urb Gen Broadleaf", b0]*
-                                                        (dbh.2006^biom.urb[equation=="Urb Gen Broadleaf", b1]))*
-         taxa[match(street[record.good==1 & is.na(biom.2006), Species], taxa[,Species]), kg.m3]
-       ]
-street[record.good==1 & !is.na(biom.2006), length(biom.2006)]/street[record.good==1, length(record.good)] ## That fills in the remaining records using UrbGenBroadleaf*Specific wood density
-
-## update taxa compendium with the proper equations
-taxa[is.na(biom.b0), biom.b0:=biom.urb[equation=="Urb Gen Broadleaf", b0]] ## McPherson's general urban broadleaf volume allometry
-taxa[is.na(biom.b1), biom.b1:=biom.urb[equation=="Urb Gen Broadleaf", b1]] ## should have an exhaustive list for biomass now
-
-hist(street[record.good==1, biom.2006]); summary(street[record.good==1, biom.2006]) ## most below 750kg, one is 15k???
-View(street[record.good==1 & biom.2006>1000,]) ## these are the 400 or so honking big trees
-hist(street[record.good==1 & biom.2006>1000, dbh.2006]) ## a few massive fuckers, most below 80cm
-street[record.good==1 & biom.2006>5000,] ## 11 with dbh >93cm, Oak, elm, 1 ash; honkers >10k kg are
-### the Fraxinus and Ulmus equations are good up to >110cm and the Quercus other than rubra are good to 135cm (under UrbGenBroadleaf), but Q.rubra is only good to 50cm, and they're the top 5 honkers
-### switch Q.rubra biomass back to UrbGenBroadleaf (coefficients already subbed to UrbGenBroadleaf in taxa)
-street[record.good==1 & Species=="Quercus rubra", biom.2006:=taxa[match(street[record.good==1 & Species=="Quercus rubra", Species],taxa[,Species]), biom.b0]*
-         (dbh.2006^taxa[match(street[record.good==1 & Species=="Quercus rubra", Species],taxa[,Species]), biom.b1])*
-         taxa[match(street[record.good==1 & Species=="Quercus rubra", Species], taxa[,Species]), kg.m3]]
-hist(street[record.good==1, biom.2006]); summary(street[record.good==1, biom.2006]) ## the big boy is down to 11k kg
-street[record.good==1 & biom.2006>5000,] ## somewhat more reasonable, just one giant honking 122cm Q.rubra at 11k kg (!!!), most below 7k kg
-
-## little trees are getting very low biomass estimates, what gives?
-# ## eg zelkova
-# z <- street[Species=="Zelkova serrata",]
-# plot(z[,dbh.2006], z[,dbh.2014])
-# plot(z[,dbh.2006], z[,biom.2006])
-# taxa[Species=="Zelkova serrata", biom.b0]*(z[,dbh.2006]^taxa[Species=="Zelkova serrata", biom.b1])*taxa[Species=="Zelkova serrata", kg.m3]
-# fwrite(street, file = "H:/BosBiog/processed/street.trees.dbh2.csv")
-
-### did we change our initial t0 biomass estimates by much?
+# #####
+# ## Step 0: Whip the species IDs into shape
+# library(data.table)
+# setwd("/projectnb/buultra/atrlica/FragEVI/")
+# # setwd("H:/FragEVI/")
+# street <- fread("processed/boston/street.trees.dbh.csv")
+# street[Species=="Acer", Species:="Acer platanoides"] ## 4 un-ID'd Acer --> Norway
+# street[Species=="Betula americana", Species:="Betula"] ## 1 un-ID's Betula, probably papyrifera but no species-specific allometrics anyway
+# street[Species=="Celtis", Species:="Celtis occidentalis"] ## only 1 un-ID'd, and we have an allometric entry for Celtis occidentalis
+# street[Species=="Fraxinus", Species:="Fraxinus pennsylvanica"] ## 24 un-ID'd fraxinus but much more likely to be penn. than americana
+# street[Species=="Liquidambar", Species:="Liquidambar styraciflua"] ## 4 un-ID'd, almost certaintly American sweetgums
+# street[Species=="Malus", Species:="Malus spp."] ## so the table lookup will work
+# ## 2 Magnolia -- can't say
+# ## 1 Morus -- can't say
+# street[Species=="Prunus", Species:="Prunus serrulata"] ## 144 un-ID'd Prunus, I'll guess most are serrulata (Japanese cherry), which has an allometric entry
+# street[Species=="Pyrus", Species:="Pyrus calleryana"] ## 150 Pyrus spp. byt I'd bet any random Pear is a Callery Pear
+# street[Species=="Quercus", Species:="Quercus rubra"] ## 1 Quercus spp., most common by far is rubra (123 rubra vs ~50 all other spp.)
+# ## 111 Ulmus spp., 16 Ulmus european, 14 U. americana, 4 U. crassifolia -- no idea how to assign these, U. americana has some allometric entries
+# street[Species=="Zelkova", Species:="Zelkova serrata"] ## 238 un-ID'd, serrata has an allometric entry
+# ## the rest don't lend themselves obviously to any neater arrangement
+# ### for simplicity, I'm going to eliminate the singular Pinus spp. in here so I don't have to write whole other lookups and defaults for it
+# street <- street[Species!="Pinus resinosa",]
+# t <- street[record.good==1,length(dbh.2006), by=Species]
+# t <- t[order(t[,Species])]; t ## here's what we are dealing with
+# 
+# ## note here: "Platanus acerifolia" (street record) == "Platanus x aerifolia" (TS6) == "Platanus hybrida" (TS7, TS5)
+# taxa <- street[record.good==1, length(Object_ID), by=Species] ## this needs some cleaning up, 68 unique
+# taxa <- taxa[order(taxa[,Species]),] ## 38 unique Species ID in the good records
+# names(taxa)[2] <- "num.rec"
+# genspec <- strsplit(as.character(taxa$Species), " ")
+# gen <- unlist(lapply(genspec, "[[", 1))
+# taxa[,genus:=gen] ## 37 Spp
+# 
+# ## Step 1: match a leaf area equation to each unique species
+# ## read in Table S6 (growth equations) from McPherson and groom to region & predictors
+# fol <- fread("docs/RDS-2016-0005/Data/TS6_Growth_coefficients.csv") ## the raw file has typos in coefficient column a that fuck up the read in, have manually deleted
+# # class(fol$a) ## numeric, we're fine
+# fol <- fol[Region=="NoEast" & `Independent variable`=="dbh" & `Predicts component`=="leaf area",]
+# 
+# ### HEADACHE: G. triacanthos in the simulator comes in as "Gleditsia triacanthos var. inerm".... will need to correct taxa to match along these lines
+# ### and G. biloba is still misspelled "Ginko biloba"
+# fol[SpCode=="GLTR", `Scientific Name`:="Gleditsia triacanthos var. inerm"]
+# ## get equation form
+# taxa[,fol.eq.form:=fol$EqName[match(taxa$Species, fol$`Scientific Name`)]]
+# # taxa[is.na(fol.eq.form), sum(num.rec)]/taxa[,sum(num.rec)] ## 14% don't get a foliar equation
+# taxa[, fol.fill.flag:=0] ## flag which equations are getting an interpreted equation rather than a direct lookup
+# taxa[is.na(fol.eq.form), fol.fill.flag:=1]
+# 
+# ## retrieve equation coefficients
+# taxa[,fol.a:=fol$a[match(taxa$Species, fol$`Scientific Name`)]]
+# taxa[,fol.b:=fol$b[match(taxa$Species, fol$`Scientific Name`)]]
+# taxa[,fol.c:=fol$c[match(taxa$Species, fol$`Scientific Name`)]]
+# taxa[,fol.d:=fol$d[match(taxa$Species, fol$`Scientific Name`)]]
+# ## lump Acer and Ulmus, manually apply the Platanus acerifolia + Platanus occidentalis; Frax. pennsylvanica + Frax. americana; T. cordata + T. americana
+# taxa[Species=="Platanus acerifolia", c("fol.eq.form", "fol.a", "fol.b", "fol.c", "fol.d"):=list(fol[match("Platanus x acerifolia", fol$`Scientific Name`), EqName],
+#                                                                                                 fol[match("Platanus x acerifolia", fol$`Scientific Name`), a],
+#                                                                                                 fol[match("Platanus x acerifolia", fol$`Scientific Name`), b],
+#                                                                                                 fol[match("Platanus x acerifolia", fol$`Scientific Name`), c],
+#                                                                                                 fol[match("Platanus x acerifolia", fol$`Scientific Name`), d])]
+# taxa[Species=="Platanus acerifolia", fol.fill.flag:=0] ## this isn't a fill it was just done manually
+# 
+# ## if making these substitutions is a bridge too far, just comment this part out
+# ## 0 P. occidentalis in the groomed taxa record
+# # taxa[Species=="Platanus occidentalis", c("fol.eq.form", "a", "b", "c", "d"):=list(fol[match("Platanus x acerifolia", fol$`Scientific Name`), EqName],
+# #                                                                                 fol[match("Platanus x acerifolia", fol$`Scientific Name`), fol.a],
+# #                                                                                 fol[match("Platanus x acerifolia", fol$`Scientific Name`), fol.b],
+# #                                                                                 fol[match("Platanus x acerifolia", fol$`Scientific Name`), fol.c],
+# #                                                                                 fol[match("Platanus x acerifolia", fol$`Scientific Name`), fol.d])]
+# 
+# ## 0 F. american in the groomed taxa record
+# # taxa[Species=="Fraxinus americana", c("fol.eq.form", "a", "b", "c", "d"):=list(fol[match("Fraxinus pennsylvanica", fol$`Scientific Name`), EqName],
+# #                                                                                 fol[match("Fraxinus pennsylvanica", fol$`Scientific Name`), fol.a],
+# #                                                                                 fol[match("Fraxinus pennsylvanica", fol$`Scientific Name`), fol.b],
+# #                                                                                 fol[match("Fraxinus pennsylvanica", fol$`Scientific Name`), fol.c],
+# #                                                                                 fol[match("Fraxinus pennsylvanica", fol$`Scientific Name`), fol.d])]
+# 
+# ### 29 A. campestre and 1 A. pseudoplatanus in the groomed taxa record
+# # taxa[genus=="Acer" & fol.fill.flag==1, c("fol.eq.form", "a", "b", "c", "d"):=list(fol[match("Acer platanoides", fol$`Scientific Name`), EqName],
+# #                                                                                fol[match("Acer platanoides", fol$`Scientific Name`), fol.a],
+# #                                                                                fol[match("Acer platanoides", fol$`Scientific Name`), fol.b],
+# #                                                                                fol[match("Acer platanoides", fol$`Scientific Name`), fol.c],
+# #                                                                                fol[match("Acer platanoides", fol$`Scientific Name`), fol.d])]
+# 
+# ## 55 Ulmus spp. in the groomed taxa record
+# taxa[genus=="Ulmus" & fol.fill.flag==1, c("fol.eq.form", "fol.a", "fol.b", "fol.c", "fol.d"):=list(fol[match("Ulmus americana", fol$`Scientific Name`), EqName],
+#                                                                                                    fol[match("Ulmus americana", fol$`Scientific Name`), a],
+#                                                                                                    fol[match("Ulmus americana", fol$`Scientific Name`), b],
+#                                                                                                    fol[match("Ulmus americana", fol$`Scientific Name`), c],
+#                                                                                                    fol[match("Ulmus americana", fol$`Scientific Name`), d])]
+# 
+# ## 16 T. americana in the groomed taxa record
+# taxa[Species=="Tilia americana" & fol.fill.flag==1, c("fol.eq.form", "fol.a", "fol.b", "fol.c", "fol.d"):=list(fol[match("Tilia cordata", fol$`Scientific Name`), EqName],
+#                                                                                                                fol[match("Tilia cordata", fol$`Scientific Name`), a],
+#                                                                                                                fol[match("Tilia cordata", fol$`Scientific Name`), b],
+#                                                                                                                fol[match("Tilia cordata", fol$`Scientific Name`), c],
+#                                                                                                                fol[match("Tilia cordata", fol$`Scientific Name`), d])]
+# 
+# taxa[is.na(fol.eq.form), sum(num.rec)]/taxa[,sum(num.rec)] ## now only 2.5% of taxa with good records don't get a foliar equation
+# 
+# ### write functions to handle the different equation forms
+# # taxa[,unique(fol.eq.form)]
+# fol.loglogw1 <- function(x, a, b, c){exp(a+(b*log(log(x+1)))+(c/2))}
+# fol.loglogw2 <- function(x, a, b, c){exp(a+(b*log(log(x+1)))+(sqrt(x)*(c/2)))}
+# fol.quad <- function(x, a, b, c){a+(b*x)+(c*(x^2))}
+# fol.cub <- function(x, a, b, c, d){a+(b*x)+(c*(x^2))+(d*(x^3))}
+# 
+# # ### test foliar area predictions
+# # ## Sweetgum example
+# # dbh=35
+# # a=-4.47012
+# # b=1.90089
+# # c=0.10895
+# # do.call(fol.quad, args = list(dbh, a, b, c)) ## 195 m2 @ dbh 35
+# #
+# # ## Callery pear example
+# # dbh=35
+# # a=-1.86944
+# # b=5.60849
+# # c=0.20744
+# # do.call(fol.loglogw1, args = list(dbh, a, b, c)) ## 219 m2 @ dbh 35
+# #
+# # ## Platanus example
+# # dbh=35
+# # a=-2.06877
+# # b=5.77886
+# # c=0.27978
+# # do.call(fol.loglogw1, args = list(dbh, a, b, c)) ## 232 m2 @ dbh 35
+# #
+# # ## Fraxinus example
+# # dbh=35
+# # a=-1.51177
+# # b=5.39015
+# # c=0.06139
+# # do.call(fol.loglogw2, args = list(dbh, a, b, c)) ## 257 m2 @ dbh 35
+# #
+# # ## Q.rubra example
+# # dbh=35
+# # a=-3.02473
+# # b=1.36611
+# # c=0.20228
+# # d=-0.00112
+# # do.call(fol.cub, args = list(dbh, a, b, c, d)) ## 244 m2 @ dbh 35
+# # ### acceptable
+# 
+# ## push leaf area coefficients/equations into the street record
+# 
+# street[,fol.eq.form:=taxa[match(street[,Species], taxa$Species), fol.eq.form]]
+# street[,fol.a:=taxa[match(street[,Species], taxa$Species), fol.a]]
+# street[,fol.b:=taxa[match(street[,Species], taxa$Species), fol.b]]
+# street[,fol.c:=taxa[match(street[,Species], taxa$Species), fol.c]]
+# street[,fol.d:=taxa[match(street[,Species], taxa$Species), fol.d]]
+# 
+# # street[!is.na(fol.eq.form), length(fol.eq.form)]/dim(street)[1] ## 94.3% get a matching equation out of the lookup table
+# street[fol.eq.form=="loglogw1", fol.area.m2:=do.call(fol.loglogw1,
+#                                                      args=list(dbh.2006, fol.a, fol.b, fol.c))
+#        ]
+# street[fol.eq.form=="loglogw2", fol.area.m2:=do.call(fol.loglogw2,
+#                                                      args=list(dbh.2006, fol.a, fol.b, fol.c))
+#        ]
+# street[fol.eq.form=="cub", fol.area.m2:=do.call(fol.cub,
+#                                                 args=list(dbh.2006, fol.a, fol.b, fol.c, fol.d))
+#        ]
+# street[fol.eq.form=="quad", fol.area.m2:=do.call(fol.quad,
+#                                                  args=list(dbh.2006, fol.a, fol.b, fol.c))
+#        ]
+# 
+# summary(street[record.good==1 & !is.na(fol.eq.form), fol.area.m2]); hist(street[record.good==1 & !is.na(fol.eq.form), fol.area.m2]) ## 75% below 250 m2
+# 
+# ## try to match up foliar dw/m2
+# dw <- fread("H:/FragEVI/docs/RDS-2016-0005/Data/TS5_Foliar_biomass_leaf_samples.csv") ## the raw file has errors in coefficient a that fuck up the read in, have manually deleted
+# # class(fol$a) ## numeric, we're fine
+# dw <- dw[Region=="NoEast",]
+# dw[`Scientific Name`=="Malus sp.", `Scientific Name`:="Malus spp."]
+# dw[`Scientific Name`=="Platanus hybrida", `Scientific Name`:="Platanus acerifolia"]
+# 
+# ## push into the taxa keeper and groom
+# taxa[,dw.m2:=dw$`Avg dw g/m2`[match(taxa$Species, dw$`Scientific Name`)]]
+# # taxa[is.na(dw.m2), sum(num.rec)]/taxa[,sum(num.rec)] ## 5.6% don't get a foliar dw/m2
+# taxa[, dw.fill.flag:=0] ## flag which equations are getting an interpreted equation rather than a direct lookup
+# 
+# ## for those you subbed allometrics into: fill in dw leaf for Ulmus spp. (-->U. americana) and Tilia americana (-->T. cordata)
+# taxa[Species=="Ulmus", dw.m2:=dw[`Scientific Name`=="Ulmus americana", `Avg dw g/m2`]]
+# taxa[Species=="Tilia americana", dw.m2:=dw[`Scientific Name`=="Tilia cordata", `Avg dw g/m2`]]
+# # taxa[is.na(dw.m2), sum(num.rec)]/taxa[,sum(num.rec)] ## now 2.8% don't get a foliar dw/m2
+# taxa[is.na(dw.m2), dw.fill.flag:=1]
+# 
+# ### match street with dw/m2 values and then fill the holes with the weighted average across the good records
+# dw.wavg <- sum(taxa[,(num.rec*dw.m2)], na.rm=T)/taxa[,sum(num.rec, na.rm=T)] ## about 102 g/m2
+# taxa[is.na(dw.m2), dw.m2:=dw.wavg]
+# street[,dw.m2:=taxa[match(street[,Species], taxa$Species), dw.m2]]
+# street[record.good==1 & is.na(dw.m2), length(dbh.2006)]/dim(street[record.good==1,])[1] ## we've at least got a filled avg dw.m2 for every record
+# 
+# ## calculate foliar biomass
+# street[,fol.biom.kg:=fol.area.m2*dw.m2/1000]
+# hist(street[record.good==1, fol.biom.kg]); summary(street[record.good==1, fol.biom.kg]) ## 75% below 26 kg/tree
+# street[record.good==1 & is.na(fol.biom.kg), length(dbh.2006)]/dim(street[record.good==1,])[1] ## still missing 2.5% of records with no foliar biomass
+# 
+# ## model foliar biomass fraction to fill in the remainders, once you have AG biomass figured out....
+# 
+# ### REV UP YER SHITS, ITS TIME TO SLOT IN ALL THEM BIOMASS
+# ## kill some extraneous street data fields that are fucking things up
+# street[,c("biom.2006", "biom.2014", "npp.ann", "npp.ann.rel", "delta.diam", "diam.rate", "biomass.2006", "biomass.2014"):=NULL]
+# 
+# # biom.urb <- fread("H:/FragEVI/docs/RDS-2016-0005/Data/TS7_Volume_eqns_from_urban.csv") ## scratch -- this is a pain in the dick-hole, go with the manually produced one from FragEVI
+# # biom.urb[`Equation Species`%in%street[record.good==1, unique(Species)], unique(`Equation Species`)] ## OK, I've mined this for all the species that might appear in my street record
+# biom.urb <- fread("H:/BosBiog/docs/street.biometrics.V2.csv") ## taken from TS7 these list Vol + dbh-->Vol (Vol(m3)=b0*dbh(cm)^b1)
+# biom.rur <- fread("H:/FragEVI/docs/RDS-2016-0005/Data/TS8_Volume_and_biomass_eqns_from_rural.csv")
+# biom.rur <- biom.rur[`Equation Species`%in%street[record.good==1, unique(Species)],] ## A.rubrum, Fagus grandif., Q.rubra
+# dens.dat <- fread("H:/BosBiog/docs/wood.dens.NAmer.csv") ## exerpt from Zanne Global wood density database
+# dens.dat[,dens.kg.m3:=`Wood density (g/cm^3), oven dry mass/fresh volume`*1000] ## correct to kg/m3
+# 
+# ## update the crosswalk sheet with whatever you could find in terms of wood density
+# taxa[,kg.m3:=biom.urb[match(Species, biom.urb$equation), dens]] ## slot in the wood density you found in the urban biomass allometric sheet (TS7) (none available in rural biomass equations sheet TS8)
+# taxa[is.na(kg.m3), kg.m3:=dens.dat[match(Species, dens.dat$Binomial), dens.kg.m3]] ## fill in gaps with wood density in global wood database (no density avail in overlapping biom.rur records)
+# ## manual fill from what I can find in Table 11 of McPherson
+# taxa[Species=="Aesculus hippocastanum", kg.m3:=500]
+# taxa[Species=="Catalpa", kg.m3:=380] ## Catalpa speciosa
+# taxa[Species=="Crataegus", kg.m3:=520] ## Crataegus spp.
+# taxa[Species=="Fagus grandifolia", kg.m3:=585] ## differs from Zanne
+# taxa[Species=="Ginkgo biloba", kg.m3:=520]
+# taxa[Species=="Koelreuteria paniculata", kg.m3:=620]
+# taxa[Species=="Malus spp.", kg.m3:=610]
+# taxa[Species=="Prunus serrulata", kg.m3:=560] ## P.serrulata or P. spp.
+# taxa[Species=="Pyrus calleryana", kg.m3:=600] ## Pyrus spp.
+# taxa[Species=="Ulmus", kg.m3:=460] ## U. americana
+# kg.m3.wavg <- taxa[!is.na(kg.m3), sum(num.rec*kg.m3)]/taxa[!is.na(kg.m3), sum(num.rec)] ## 508 kg/m3 weighted average for everything I've got
+# taxa[!is.na(kg.m3), dens.fill.flag:=0]
+# taxa[is.na(kg.m3), dens.fill.flag:=1]
+# taxa[is.na(kg.m3), kg.m3:=kg.m3.wavg]
+# # taxa[dens.fill.flag==1, sum(num.rec)]/taxa[,sum(num.rec)] ## we only needed to fill wood density on 2% of the records
+# 
+# ### calculate biomass in street in this order: 1)urban and 2)rural, then fill in the gen urban last
+# taxa[, biom.b0:=biom.urb[match(taxa$Species, biom.urb$equation), b0]]
+# taxa[, biom.b1:=biom.urb[match(taxa$Species, biom.urb$equation), b1]]
+# taxa[,fill.biom.flag:=0]
+# taxa[is.na(biom.b0), fill.biom.flag:=1]
+# taxa[fill.biom.flag==1, sum(num.rec)]/taxa[,sum(num.rec)] ## we don't have an "urban" volume equation for 21% of tree records
+# 
+# ### calculate the ones for which we have a true urban-specific vol-->biomass equation
+# street[, biom.2006:=(taxa[match(street$Species, taxa[,Species]), biom.b0]*
+#                        (dbh.2006^(taxa[match(street$Species, taxa[,Species]), biom.b1])))*
+#          taxa[match(street$Species, taxa[,Species]), kg.m3]
+#        ]
+# street[record.good==1 & !is.na(biom.2006), length(biom.2006)]/street[record.good==1, length(record.good)]
+# 
+# ## manually add in the 3 rural direct biomass equations we have from TS8
+# street[record.good==1 & Species=="Acer rubrum", biom.2006:=0.1970*(dbh.2006^2.1933)]
+# street[record.good==1 & Species=="Fagus grandifolia", biom.2006:=0.1957*(dbh.2006^2.3916)]
+# oak.fun <- function(x, a, b, c, d){a*(x^b)-exp(c+d/x)}
+# street[record.good==1 & Species=="Quercus rubra", biom.2006:=oak.fun(dbh.2006, 0.1130, 2.4572, -4.0813, 5.8816)]
+# # oak.fun(30, 0.1130, 2.4572, -4.0813, 5.8816)
+# # plot(1:60, oak.fun(1:60, 0.1130, 2.4572, -4.0813, 5.8816)) ### seems reasonable in the absense of other objections
+# street[record.good==1 & !is.na(biom.2006), length(biom.2006)]/street[record.good==1, length(record.good)] ## up to 84% of records
+# 
+# ### McPherson doesn't say whether to prefer the generalized urban broadleaf or the somewhat more sub-categorized rural-derived equations
+# ### he does, however, recommend fitting wood density as close as possible to species since these can vary a lot between species
+# street[record.good==1 & is.na(biom.2006),] ## 413 records to fill for AG biomass
+# street[record.good==1 & is.na(biom.2006), biom.2006:=(biom.urb[equation=="Urb Gen Broadleaf", b0]*
+#                                                         (dbh.2006^biom.urb[equation=="Urb Gen Broadleaf", b1]))*
+#          taxa[match(street[record.good==1 & is.na(biom.2006), Species], taxa[,Species]), kg.m3]
+#        ]
+# street[record.good==1 & !is.na(biom.2006), length(biom.2006)]/street[record.good==1, length(record.good)] ## That fills in the remaining records using UrbGenBroadleaf*Specific wood density
+# 
+# ## update taxa compendium with the proper equations
+# taxa[is.na(biom.b0), biom.b0:=biom.urb[equation=="Urb Gen Broadleaf", b0]] ## McPherson's general urban broadleaf volume allometry
+# taxa[is.na(biom.b1), biom.b1:=biom.urb[equation=="Urb Gen Broadleaf", b1]] ## should have an exhaustive list for biomass now
+# 
+# hist(street[record.good==1, biom.2006]); summary(street[record.good==1, biom.2006]) ## most below 750kg, one is 15k???
+# View(street[record.good==1 & biom.2006>1000,]) ## these are the 400 or so honking big trees
+# hist(street[record.good==1 & biom.2006>1000, dbh.2006]) ## a few massive fuckers, most below 80cm
+# street[record.good==1 & biom.2006>5000,] ## 11 with dbh >93cm, Oak, elm, 1 ash; honkers >10k kg are
+# ### the Fraxinus and Ulmus equations are good up to >110cm and the Quercus other than rubra are good to 135cm (under UrbGenBroadleaf), but Q.rubra is only good to 50cm, and they're the top 5 honkers
+# ### switch Q.rubra biomass back to UrbGenBroadleaf (coefficients already subbed to UrbGenBroadleaf in taxa)
+# street[record.good==1 & Species=="Quercus rubra", biom.2006:=taxa[match(street[record.good==1 & Species=="Quercus rubra", Species],taxa[,Species]), biom.b0]*
+#          (dbh.2006^taxa[match(street[record.good==1 & Species=="Quercus rubra", Species],taxa[,Species]), biom.b1])*
+#          taxa[match(street[record.good==1 & Species=="Quercus rubra", Species], taxa[,Species]), kg.m3]]
+# hist(street[record.good==1, biom.2006]); summary(street[record.good==1, biom.2006]) ## the big boy is down to 11k kg
+# street[record.good==1 & biom.2006>5000,] ## somewhat more reasonable, just one giant honking 122cm Q.rubra at 11k kg (!!!), most below 7k kg
+# 
+# ## little trees are getting very low biomass estimates, what gives?
+# # ## eg zelkova
+# # z <- street[Species=="Zelkova serrata",]
+# # plot(z[,dbh.2006], z[,dbh.2014])
+# # plot(z[,dbh.2006], z[,biom.2006])
+# # taxa[Species=="Zelkova serrata", biom.b0]*(z[,dbh.2006]^taxa[Species=="Zelkova serrata", biom.b1])*taxa[Species=="Zelkova serrata", kg.m3]
+# # fwrite(street, file = "H:/BosBiog/processed/street.trees.dbh2.csv")
+# 
+# ### did we change our initial t0 biomass estimates by much?
+# # street <- fread("H:/BosBiog/processed/street.trees.dbh2.csv")
+# # street2 <- as.data.table(read.csv("H:/FragEVI/processed/boston/street.trees.dbh.csv"))
+# # street.allo <- read.csv("H:/FragEVI/docs/street.biometrics.csv")
+# # street2 <- street2[Species!="Pinus resinosa",]
+# # street2[, biom.2006.urb:=street.allo[match(street2[,genus], street.allo$genus, nomatch=8), "b0"]*(street2[,dbh.2006]^street.allo[match(street2[,genus], street.allo$genus, nomatch=8), "b1"])*street.allo[match(street2[,genus], street.allo$genus, nomatch=8), "dens"]]
+# # street[,old.biom.2006:=street2[,biom.2006.urb]]
+# # summary((street[record.good==1, biom.2006-old.biom.2006])) ## median 0, up to +- 1000, 1-3Q is 0
+# # hist((street[record.good==1, biom.2006-old.biom.2006])) ## pretty concentrated around 0
+# # common <- taxa[num.rec>30, .(Species, num.rec)]
+# # plot(street[record.good==1 & Species%in%common$Species, biom.2006],
+# #      street[record.good==1 & Species%in%common$Species, biom.2006-old.biom.2006],
+# #      col=as.numeric(as.factor(street[record.good==1 & Species%in%common$Species, Species])))
+# # legend(x=6000, y=-200, legend=street[record.good==1 & Species%in%common$Species, unique(Species)],
+# #        fill = as.numeric(as.factor(street[record.good==1 & Species%in%common$Species, unique(Species)])),
+# #        cex=0.65) ## above h=0, old was lower, below h=0, old was higher
+# # points(street[record.good==1 & Species=="Quercus rubra", biom.2006],
+# #      street[record.good==1 & Species=="Quercus rubra", biom.2006-old.biom.2006], pch=14, col="orange") ## The other outliers because these can get so fucking big
+# # points(street[record.good==1 & Species=="Ulmus", biom.2006],
+# #        street[record.good==1 & Species=="Ulmus", biom.2006-old.biom.2006], pch=13, col="blue") ## Ulmus is the serious departure
+# # points(street[record.good==1 & Species=="Malus spp.", biom.2006],
+# #        street[record.good==1 & Species=="Malus spp.", biom.2006-old.biom.2006], pch=16, col="purple") ## steep positive departure in low end of the range but within ~10%?
+# # points(street[record.good==1 & Species=="Acer rubrum", biom.2006],
+# #        street[record.good==1 & Species=="Acer rubrum", biom.2006-old.biom.2006], pch=17, col="red") ## hooked negative, low end of biomass range
+# #
+# # street[,oldvnew:=biom.2006-old.biom.2006]
+# # street[,oldvnew.rel:=oldvnew/biom.2006]
+# # summary(street[record.good==1, oldvnew.rel]) ## up to -2x lower
+# #
+# # View(street[record.good==1 & Species=="Ulmus" & biom.2006>1600,]) ## Old equation treated Ulmus as default GenUrbBroad and density 549; new one treats Ulmus as big American elms, density 460
+# # summary(street[record.good==1 & Species=="Ulmus", dbh.2006])
+# # hist(street[record.good==1 & Species=="Ulmus", dbh.2006]) ## bimodal, littles and bigs, bigs are more likely surviving U.americana but no way to know the littles
+# # ## so re. Ulmus, it only matters in that a handful of monsters are somewhat less monstrous than before, but only like 19% less relatively
+# #
+# # View(street[record.good==1 & Species=="Quercus rubra" & biom.2006>1600,]) ## all GOATs, relatively little increase, probably just somewhat higher density (both used GenUrbBroadleaf)
+# # summary(street[record.good==1 & Species=="Quercus rubra", dbh.2006])
+# # hist(street[record.good==1 & Species=="Quercus rubra", dbh.2006]) ## mostly wee, just a few true GOATs
+# #
+# # View(street[record.good==1 & Species=="Malus spp." & biom.2006>10,]) ## minor 10% increase due to density set off default from old
+# # summary(street[record.good==1 & Species=="Malus spp.", dbh.2006])
+# # hist(street[record.good==1 & Species=="Malus spp.", dbh.2006]) ## wee, but not as light as they looked before putting the right density to them
+# #
+# # View(street[record.good==1 & Species=="Acer rubrum" & biom.2006>10,]) ## relatively large 60%ish downgrade
+# # summary(street[record.good==1 & Species=="Acer rubrum", dbh.2006]) ## wee
+# # hist(street[record.good==1 & Species=="Acer rubrum", dbh.2006]) ## wee, new uses lower density and a different allometric (rural-based)
+# # ### summary: the things we changed are only noticable in a handful of places and are probably more correct than before, but really only affect the biomass estimates for a relatively small number of records
+# 
 # street <- fread("H:/BosBiog/processed/street.trees.dbh2.csv")
-# street2 <- as.data.table(read.csv("H:/FragEVI/processed/boston/street.trees.dbh.csv"))
-# street.allo <- read.csv("H:/FragEVI/docs/street.biometrics.csv")
-# street2 <- street2[Species!="Pinus resinosa",]
-# street2[, biom.2006.urb:=street.allo[match(street2[,genus], street.allo$genus, nomatch=8), "b0"]*(street2[,dbh.2006]^street.allo[match(street2[,genus], street.allo$genus, nomatch=8), "b1"])*street.allo[match(street2[,genus], street.allo$genus, nomatch=8), "dens"]]
-# street[,old.biom.2006:=street2[,biom.2006.urb]]
-# summary((street[record.good==1, biom.2006-old.biom.2006])) ## median 0, up to +- 1000, 1-3Q is 0
-# hist((street[record.good==1, biom.2006-old.biom.2006])) ## pretty concentrated around 0
-# common <- taxa[num.rec>30, .(Species, num.rec)]
-# plot(street[record.good==1 & Species%in%common$Species, biom.2006],
-#      street[record.good==1 & Species%in%common$Species, biom.2006-old.biom.2006],
-#      col=as.numeric(as.factor(street[record.good==1 & Species%in%common$Species, Species])))
-# legend(x=6000, y=-200, legend=street[record.good==1 & Species%in%common$Species, unique(Species)],
-#        fill = as.numeric(as.factor(street[record.good==1 & Species%in%common$Species, unique(Species)])),
-#        cex=0.65) ## above h=0, old was lower, below h=0, old was higher
-# points(street[record.good==1 & Species=="Quercus rubra", biom.2006],
-#      street[record.good==1 & Species=="Quercus rubra", biom.2006-old.biom.2006], pch=14, col="orange") ## The other outliers because these can get so fucking big
-# points(street[record.good==1 & Species=="Ulmus", biom.2006],
-#        street[record.good==1 & Species=="Ulmus", biom.2006-old.biom.2006], pch=13, col="blue") ## Ulmus is the serious departure
-# points(street[record.good==1 & Species=="Malus spp.", biom.2006],
-#        street[record.good==1 & Species=="Malus spp.", biom.2006-old.biom.2006], pch=16, col="purple") ## steep positive departure in low end of the range but within ~10%?
-# points(street[record.good==1 & Species=="Acer rubrum", biom.2006],
-#        street[record.good==1 & Species=="Acer rubrum", biom.2006-old.biom.2006], pch=17, col="red") ## hooked negative, low end of biomass range
-#
-# street[,oldvnew:=biom.2006-old.biom.2006]
-# street[,oldvnew.rel:=oldvnew/biom.2006]
-# summary(street[record.good==1, oldvnew.rel]) ## up to -2x lower
-#
-# View(street[record.good==1 & Species=="Ulmus" & biom.2006>1600,]) ## Old equation treated Ulmus as default GenUrbBroad and density 549; new one treats Ulmus as big American elms, density 460
-# summary(street[record.good==1 & Species=="Ulmus", dbh.2006])
-# hist(street[record.good==1 & Species=="Ulmus", dbh.2006]) ## bimodal, littles and bigs, bigs are more likely surviving U.americana but no way to know the littles
-# ## so re. Ulmus, it only matters in that a handful of monsters are somewhat less monstrous than before, but only like 19% less relatively
-#
-# View(street[record.good==1 & Species=="Quercus rubra" & biom.2006>1600,]) ## all GOATs, relatively little increase, probably just somewhat higher density (both used GenUrbBroadleaf)
-# summary(street[record.good==1 & Species=="Quercus rubra", dbh.2006])
-# hist(street[record.good==1 & Species=="Quercus rubra", dbh.2006]) ## mostly wee, just a few true GOATs
-#
-# View(street[record.good==1 & Species=="Malus spp." & biom.2006>10,]) ## minor 10% increase due to density set off default from old
-# summary(street[record.good==1 & Species=="Malus spp.", dbh.2006])
-# hist(street[record.good==1 & Species=="Malus spp.", dbh.2006]) ## wee, but not as light as they looked before putting the right density to them
-#
-# View(street[record.good==1 & Species=="Acer rubrum" & biom.2006>10,]) ## relatively large 60%ish downgrade
-# summary(street[record.good==1 & Species=="Acer rubrum", dbh.2006]) ## wee
-# hist(street[record.good==1 & Species=="Acer rubrum", dbh.2006]) ## wee, new uses lower density and a different allometric (rural-based)
-# ### summary: the things we changed are only noticable in a handful of places and are probably more correct than before, but really only affect the biomass estimates for a relatively small number of records
-
-street <- fread("H:/BosBiog/processed/street.trees.dbh2.csv")
-
-## Fill in the handful of records you couldn't guess a foliar biomass for
-ff <- copy(street)
-ff[,fol.biom.frac:=fol.biom.kg/biom.2006]
-summary(ff[record.good==1, fol.biom.frac]); hist(ff[record.good==1, fol.biom.frac]) ### very skewed low, 75% below 6%
-plot(ff[record.good==1, biom.2006], ff[record.good==1, fol.biom.frac]) ## hyperbolic, badly constrained below 2000kg
-plot(ff[record.good==1, log(biom.2006)], ff[record.good==1, (fol.biom.frac)]) ## meh
-plot(ff[record.good==1, (biom.2006)], ff[record.good==1, log(fol.biom.frac)]) ## not great
-plot(ff[record.good==1, log(biom.2006)], ff[record.good==1, log(fol.biom.frac)]) ## meh, at least homoskedatic
-nerp <- (lm(log(fol.biom.frac)~log(biom.2006), data=ff[record.good==1,])) ## sig, r2 0.45
-summary(nerp)
-points(ff[record.good==1 & !is.na(fol.biom.frac), log(biom.2006)], predict(object = nerp), col="red", pch=15) ## I can live with this to fill in this few records
-# plot(ff[record.good==1, fol.biom.kg], ff[record.good==1, fol.biom.frac]) ## hyperbolic
-# plot(ff[record.good==1, (fol.biom.kg)], ff[record.good==1, log(fol.biom.frac)]) ## sloppy
-# plot(ff[record.good==1, log(fol.biom.kg)], ff[record.good==1, (fol.biom.frac)]) ## sloppy
-# plot(ff[record.good==1, log(fol.biom.kg)], ff[record.good==1, log(fol.biom.frac)]) ## meh
-# summary(lm(log(fol.biom.frac)~log(fol.biom.kg), data=ff[record.good==1,])) ## sig, r2 0.45
-
-fol.fill <- street[record.good==1 & is.na(fol.biom.kg), Object_ID]
-points(street[Object_ID%in%fol.fill, log(biom.2006)],
-       street[Object_ID%in%fol.fill, nerp$coefficients[1]+(nerp$coefficients[2]*log(biom.2006))],
-       col="blue", pch=17) ## meh ok
-street[record.good==1 & is.na(fol.biom.kg), fol.biom.kg:=(exp(nerp$coefficients[1]+(nerp$coefficients[2]*log(biom.2006))))*biom.2006]
-street[record.good==1 & is.na(fol.biom.kg),] ## got em all
-
-## Add root biomass for a Final biomass estimate per tree
-street[,biom.tot.2006:=biom.2006*1.28]
-summary(street[record.good==1, biom.2006])
-summary(street[record.good==1, biom.tot.2006])
-summary(street[record.good==1, fol.biom.kg])
-fwrite(street, file="H:/BosBiog/processed/street.trees.dbh2.csv")
-
-## push these calcs into the streettree simulator module and use the equations as ginned up from taxa.
-
-
+# 
+# ## Fill in the handful of records you couldn't guess a foliar biomass for
+# ff <- copy(street)
+# ff[,fol.biom.frac:=fol.biom.kg/biom.2006]
+# summary(ff[record.good==1, fol.biom.frac]); hist(ff[record.good==1, fol.biom.frac]) ### very skewed low, 75% below 6%
+# plot(ff[record.good==1, biom.2006], ff[record.good==1, fol.biom.frac]) ## hyperbolic, badly constrained below 2000kg
+# plot(ff[record.good==1, log(biom.2006)], ff[record.good==1, (fol.biom.frac)]) ## meh
+# plot(ff[record.good==1, (biom.2006)], ff[record.good==1, log(fol.biom.frac)]) ## not great
+# plot(ff[record.good==1, log(biom.2006)], ff[record.good==1, log(fol.biom.frac)]) ## meh, at least homoskedatic
+# nerp <- (lm(log(fol.biom.frac)~log(biom.2006), data=ff[record.good==1,])) ## sig, r2 0.45
+# summary(nerp)
+# points(ff[record.good==1 & !is.na(fol.biom.frac), log(biom.2006)], predict(object = nerp), col="red", pch=15) ## I can live with this to fill in this few records
+# # plot(ff[record.good==1, fol.biom.kg], ff[record.good==1, fol.biom.frac]) ## hyperbolic
+# # plot(ff[record.good==1, (fol.biom.kg)], ff[record.good==1, log(fol.biom.frac)]) ## sloppy
+# # plot(ff[record.good==1, log(fol.biom.kg)], ff[record.good==1, (fol.biom.frac)]) ## sloppy
+# # plot(ff[record.good==1, log(fol.biom.kg)], ff[record.good==1, log(fol.biom.frac)]) ## meh
+# # summary(lm(log(fol.biom.frac)~log(fol.biom.kg), data=ff[record.good==1,])) ## sig, r2 0.45
+# 
+# fol.fill <- street[record.good==1 & is.na(fol.biom.kg), Object_ID]
+# points(street[Object_ID%in%fol.fill, log(biom.2006)],
+#        street[Object_ID%in%fol.fill, nerp$coefficients[1]+(nerp$coefficients[2]*log(biom.2006))],
+#        col="blue", pch=17) ## meh ok
+# street[record.good==1 & is.na(fol.biom.kg), fol.biom.kg:=(exp(nerp$coefficients[1]+(nerp$coefficients[2]*log(biom.2006))))*biom.2006]
+# street[record.good==1 & is.na(fol.biom.kg),] ## got em all
+# 
+# ## Add root biomass for a Final biomass estimate per tree
+# street[,biom.tot.2006:=biom.2006*1.28]
+# summary(street[record.good==1, biom.2006])
+# summary(street[record.good==1, biom.tot.2006])
+# summary(street[record.good==1, fol.biom.kg])
+# fwrite(street, file="H:/BosBiog/processed/street.trees.dbh2.csv")
+# 
+# ## push these calcs into the streettree simulator module and use the equations as ginned up from taxa.
+# 
+# 
 #####
 
 
@@ -980,13 +980,46 @@ fol.fill <- cmpfun(fol.fill)
 #### THIS CODE CHUNK produces simulation diagnostics, does the growth calculations using the saved object files and exports and R objects.
 #### THE NEXT CODE CHUNK reloads the R objects and reconstructs a map file with all the different iterations of NPP
 
+# ## parallel process: check to see if any results have been written to disk, if not queue up the next chunk (or fill in gaps)
+
 ### import results objects pulled from parallel processing on the cluster (chunks of 10k pixels)
 vers <- 7 ## which simulator model run are we picking at
-realize <- 100 ## how many separate realizations per pixel to run
+realize <- 1000 ## how many separate realizations per pixel to run
 obj.dump <- list.files("processed/boston/biom_street/")
 npp.dump <- obj.dump[grep(obj.dump, pattern = paste("dbh.street.v", vers, ".weighted*", sep=""))] ## use npp empty file as a way of organizing the work
 npp.dump.chunks <- sub('.*weighted.', '', npp.dump)
 npp.dump.chunks <- sub("\\.sav.*", "", npp.dump.chunks)
+
+## check existing npp files, find next file to write
+check <- list.files("processed/boston/biom_street/results")
+check <- check[grep(check, pattern=paste("AG.npp.random.v", vers, sep=""))] ### version label here
+already <- sub(".*weighted\\.", "", check)
+already <- as.numeric(sub("\\..*", "", already))
+notyet <- npp.dump.chunks[!(npp.dump.chunks%in%already)]
+
+## if any chunks are not fully processed, next check to see if they're being worked on currently
+## the one weakness of this (besides requiring manual launch of each chunk)
+## is that if a script times out or otherwise aborts before successfully completing after the step below
+## it can't release the unfinished job from being "in process" and will keep the other scripts from running that chunk
+if(length(notyet)!=0){
+  if(!file.exists(paste("processed/boston/biom_street/results/atwork", vers, "csv", sep="."))){ ## if it isn't there start a file of who is working now
+    l <- data.frame(at.work=integer())
+    write.csv(l, file=paste("processed/boston/biom_street/results/atwork", vers, "csv", sep="."))
+  }
+  atwork <- read.csv(paste("processed/boston/biom_street/results/atwork", vers, "csv", sep="."))
+  atwork <- atwork$at.work
+  ## set target for what isn't completed and isn't being worked on
+  y <- as.numeric(min(notyet[!(notyet%in%atwork)]))
+
+  if(length(y)==0 | !is.finite(y)){stop("all pixels currently finished or in process")}
+  print(paste("going to work on chunk", y))
+  ## update the at.work file to warn other instances
+  atwork <- c(atwork, y)
+  l <- data.frame(at.work=atwork)
+  write.csv(l, file=paste("processed/boston/biom_street/results/atwork", vers, "csv", sep="."))
+  }else{stop("all pixels already processed")}
+
+npp.dump.chunks <- y ## tell it to try this one
 
 ### line up a list of randomly selected coefficients for the operatie dbh~growth model
 load("processed/mod.street.dbhdelta.me.sav") ## polynomial mixed effect with species
@@ -1011,9 +1044,8 @@ fol.npp.random <- matrix(nrow=1.1E5, ncol=realize) ## matrix for foliage NPP sim
 med.genus.track <- character() ## just pre-allocating as best I can
 med.spp.track <- character()
 med.dbh.track <- numeric()
-i=1 ## track number of pix processed
 
-for(c in 1:length(npp.dump)){
+for(c in 1:length(npp.dump.chunks)){
   ### load the diagnostic files
   print(paste("working on chunk", npp.dump.chunks[c]))
   ## number of trees in each simulated collection
@@ -1242,33 +1274,36 @@ for(c in 1:length(npp.dump)){
           AG.npp.random[b,] <- AG.dump
           AGR.npp.random[b,] <- AGR.dump
           fol.npp.random[b,] <- fol.dump
-      i=i+1 ## keep track of number of pixels processed
-    } ## end pixel loop n=b
+    } ## end pixel loop b
   
   ### once you're done processing the individual pixels in chunk c...
-  ### 1) save out the median pixel descriptions
-  tmp.med.pix <- cbind(index.track, dbh.grand, ba.grand, num.grand)
-  med.pix <- rbind(med.pix, tmp.med.pix)
-  if(c==1){colnames(med.pix) <- c("pix.ID", "med.pix.dbh", "med.pix.ba", "med.pix.num")}
-  
-  ### save out the chunk of pixels with the results of all random simulations
+  ### 1) save out the chunk of pixels with the results of all random simulations
   save(AG.npp.random, file=paste("processed/boston/biom_street/results/AG.npp.random.v", vers, ".weighted.", npp.dump.chunks[c], ".sav", sep=""))
   save(AGR.npp.random, file=paste("processed/boston/biom_street/results/AGR.npp.random.v", vers, ".weighted.", npp.dump.chunks[c], ".sav", sep=""))
   save(fol.npp.random, file=paste("processed/boston/biom_street/results/fol.npp.random.v", vers, ".weighted.", npp.dump.chunks[c], ".sav", sep=""))
+  
+  ### 2) Collect simulation diagnostics and median pixel descriptions and export
+  med.pix <- cbind(index.track, dbh.grand, ba.grand, num.grand)
+  if(c==1){colnames(med.pix) <- c("pix.ID", "med.pix.dbh", "med.pix.ba", "med.pix.num")}
+  diag.final <- as.data.table(merge(pix.diag, med.pix, by="pix.ID"))
+
+  ### 3) write out the complete vector of the dbh/spp/genus in every ID'd median pixel
+  write.csv(med.genus.track, paste0("processed/boston/results/streettrees.sim.v", vers, ".", npp.dump.chunks[c], ".med.pix.genus.csv"))
+  write.csv(med.dbh.track, paste0("processed/boston/results/streettrees.sim.v", vers, ".", npp.dump.chunks[c], ".med.pix.dbh.csv"))
+  write.csv(med.genus.track, paste0("processed/boston/results/streettrees.sim.v", vers, ".", npp.dump.chunks[c], ".med.pix.spp.csv"))
 } ## end chunk c loop
 
 ## this is very slow, ~15s to complete all 1000 realizations in each pixel (~2 per 100)
 ## have vectorized to the extent that's obvious, and cutting the median pixel diagnostics doesn't speed it up
 
-# Collect simulation diagnostics and export
-diag.final <- as.data.table(merge(pix.diag, med.pix, by="pix.ID"))
-fwrite(container, paste("processed/boston/biom_street/results/streettrees.sim.v", vers, ".diagnostics.csv", sep=""))
-
-## write out the vector of the dbh/spp/genus in every ID'd median pixel
-write.csv(med.genus.track, paste0("processed/boston/results/streettrees.sim.v", vers, ".med.pix.genus.csv"))
-write.csv(med.dbh.track, paste0("processed/boston/results/streettrees.sim.v", vers, ".med.pix.dbh.csv"))
-med.spp.track[med.spp.track==""]
-write.csv(med.genus.track, paste0("processed/boston/results/streettrees.sim.v", vers, ".med.pix.spp.csv"))
+# # Collect simulation diagnostics and export
+# diag.final <- as.data.table(merge(pix.diag, med.pix, by="pix.ID"))
+# fwrite(container, paste("processed/boston/biom_street/results/streettrees.sim.v", vers, ".", npp.dump.chunks[c], ".diagnostics.csv", sep=""))
+# 
+# ## write out the vector of the dbh/spp/genus in every ID'd median pixel
+# write.csv(med.genus.track, paste0("processed/boston/results/streettrees.sim.v", vers, ".", npp.dump.chunks[c], ".med.pix.genus.csv"))
+# write.csv(med.dbh.track, paste0("processed/boston/results/streettrees.sim.v", vers, ".", npp.dump.chunks[c], ".med.pix.dbh.csv"))
+# write.csv(med.genus.track, paste0("processed/boston/results/streettrees.sim.v", vers, ".", npp.dump.chunks[c], ".med.pix.spp.csv"))
 
 # names(container) <- c("pix.ID", "biom.kg",
 #                        "med.tree.num.sim", "med.dbh.sim", "med.ba.sim", "med.biom.sim", ### simulator medians
@@ -1276,131 +1311,132 @@ write.csv(med.genus.track, paste0("processed/boston/results/streettrees.sim.v", 
 #                       "med.npp.rand")
 
 
-hist(container$biom.kg) ## just the cell biomass of the pixels simulated
-hist(container$med.tree.num.sim); summary(container$med.tree.num.sim) # med 6 per pixel, up to 38 (slight decrease from using the earlier version with the more generous canopy -- there's been some stricture on putting in trees)
-hist(container$med.dbh.sim); summary(container$med.dbh.sim) ## the median dbh of every sim, most sims have median dbh of about 25, range from below 20 to up to 40
-hist(container$med.ba.sim) ## UP TO 3.5, @900m2/100% canopy = 39 m2/ha -- good so we don't get any higher than andy's edge plots
-hist(container$max.wts) ## most get it done before 50 wt, but a substantial minority are maxing out
-hist(container$num.sims) ## most get all 100 sims; a minority get less than 20, nothing gets 20-100
-table(container$sim.incomp) ## 98k get a simulation; 9.6k get partial/failed
-hist(container$attempts); summary(container$attempts) ## most only have to try a few hundred times, but a few go up to 400k times
-hist(container$med.npp.rand); summary(container$med.npp.rand) ## median about 100 kg/pix, max is lower at 538 kg (previous sim maxes out at 685 kg/pix)
-
-
-gawlie <- data.frame(cbind(container$pix.ID, container$num.sims, container$sim.incomp))
-colnames(gawlie) <- c("pix.ID", "num.sims", "sim.incomp")
-table(gawlie$sim.incomp) ## v6 is 98264 succeeded, 9622 failed (v5 was 5831 failed, 102055 worked)
-write.csv(gawlie, paste("processed/boston/biom_street/results/streettrees.sim.v", vers, ".status.csv", sep=""))
-
+# hist(container$biom.kg) ## just the cell biomass of the pixels simulated
+# hist(container$med.tree.num.sim); summary(container$med.tree.num.sim) # med 6 per pixel, up to 38 (slight decrease from using the earlier version with the more generous canopy -- there's been some stricture on putting in trees)
+# hist(container$med.dbh.sim); summary(container$med.dbh.sim) ## the median dbh of every sim, most sims have median dbh of about 25, range from below 20 to up to 40
+# hist(container$med.ba.sim) ## UP TO 3.5, @900m2/100% canopy = 39 m2/ha -- good so we don't get any higher than andy's edge plots
+# hist(container$max.wts) ## most get it done before 50 wt, but a substantial minority are maxing out
+# hist(container$num.sims) ## most get all 100 sims; a minority get less than 20, nothing gets 20-100
+# table(container$sim.incomp) ## 98k get a simulation; 9.6k get partial/failed
+# hist(container$attempts); summary(container$attempts) ## most only have to try a few hundred times, but a few go up to 400k times
+# hist(container$med.npp.rand); summary(container$med.npp.rand) ## median about 100 kg/pix, max is lower at 538 kg (previous sim maxes out at 685 kg/pix)
+# 
+# 
+# gawlie <- data.frame(cbind(container$pix.ID, container$num.sims, container$sim.incomp))
+# colnames(gawlie) <- c("pix.ID", "num.sims", "sim.incomp")
+# table(gawlie$sim.incomp) ## v6 is 98264 succeeded, 9622 failed (v5 was 5831 failed, 102055 worked)
+# write.csv(gawlie, paste("processed/boston/biom_street/results/streettrees.sim.v", vers, ".status.csv", sep=""))
+#####
 
 ###
-## prepare data files with each random pixel realization as a column (within-pixel spread is across rows)
-vers=6
-npp.random.list <- list.files("processed/boston/biom_street/results")
-npp.random.list <- npp.random.list[grep(npp.random.list, pattern = paste("npp.random.v", vers, ".weighted.*", sep=""))] ## V5 is 1)mixed model for DBH change; 2) urban-specific allometrics 3) consistent coefficients across each map realization;  4) uses biomass simulator V5 that also used urban-specific allometrics
-npp.random.chunks <- sub('.*weighted.', '', npp.random.list)
-npp.random.chunks <- sub("\\.sav.*", "", npp.random.chunks) ## later version get named .sav
-
-sim.status <- as.data.table(read.csv(paste("processed/boston/biom_street/results/streettrees.sim.v", vers, ".status.csv", sep="")))
-
-### associate each set of npp retreivals to its pixel ID and write to disk
-for(c in 1:length(npp.random.chunks)){
-  load(paste("processed/boston/biom_street/results/", npp.random.list[c], sep="")) ## npp.random
-  load(paste("processed/boston/biom_street/index.track.street.v", vers, ".weighted.", npp.random.chunks[c], ".sav", sep="")) ##  "index.track"
-  tmp.npp <- index.track
-  tmp.npp <- cbind(tmp.npp, matrix(nrow=length(index.track), ncol=1000, NA))
-  for(i in 1:length(index.track)){ ## row-wise reconstruction
-    if(sim.status[pix.ID==index.track[i],num.sims]<100){ ## for incomplete simulations
-      tmp.npp[i,2:1001] <- c(npp.random[[i]], rep(NA, 1000-length(npp.random[[i]]))) ## fill in any remaining holes in the npp retreival
-    }else{
-      tmp.npp[i,2:1001] <- npp.random[[i]]
-    }
-    # print(paste("pixel", i))
-  }
-  write.csv(tmp.npp, file = paste("processed/boston/biom_street/results/street.npp.random.v", vers, ".estimates.", npp.random.chunks[c], ".csv", sep=""))
-  print(paste("just wrote chunk", npp.random.chunks[c], "npp results to disk"))
-}
-
-### load up results matrices and bind to single matrix
-npp.results.list <- list.files("processed/boston/biom_street/results/")
-npp.results.list <- npp.results.list[grep(pattern = paste0("street.npp.random.v", vers), npp.results.list)]
-gosh <- data.frame()
-for(c in 1:length(npp.results.list)){
-  tmp <- read.csv(paste0("processed/boston/biom_street/results/", npp.results.list[c]))
-  gosh <- rbind(gosh, tmp)
-  print(paste('chunk', c, "loaded"))
-}
-
-## merge npp simulation results in with map pixel data
-library(data.table)
-library(raster)
-biom <- raster("processed/boston/bos.biom30m.tif") ## this is summed 1m kg-biomass to 30m pixel
-aoi <- raster("processed/boston/bos.aoi30m.tif")
-biom <- crop(biom, aoi) ## biomass was slightly buffered, need to clip to match canopy fraction raster
-biom.dat <- as.data.table(as.data.frame(biom))
-biom.dat[,aoi:=as.vector(getValues(aoi))]
-can <- raster("processed/boston/bos.can.redux30m.tif")
-can <- crop(can, aoi)
-biom.dat[,can:=getValues(can)]
-isa <- raster("processed/boston/bos.isa30m.tif")
-isa <- crop(isa, aoi)
-biom.dat[,isa:=getValues(isa)]
-lulc <- raster("processed/boston/bos.lulc30m.lumped.tif")
-lulc <- crop(lulc, aoi)
-biom.dat[,lulc:=getValues(lulc)]
-biom.dat[,pix.ID:=1:dim(biom.dat)[1]]
-names(biom.dat)[1] <- "biom"
-
-gosh <- gosh[,-1]
-names(gosh) <- c("pix.ID", paste("npp.street.random.iter.", 1:1000, ".kg", sep=""))
-map <- merge(x=biom.dat, y=gosh, by="pix.ID", all.x=T, all.y=T)
-write.csv(map, paste0("processed/results/street/streettrees.npp.simulator.v", vers, ".results.random.csv"))
-
-### Exploratory of what's in the random street tree results iterations
-npp.street <- as.data.table(read.csv("processed/results/street/streettrees.npp.simulator.v6.results.random.csv"))
-sum.na <- function(x){sum(x, na.rm=T)}
-street.tot <- apply(npp.street[, 8:1007], MARGIN=2, FUN=sum.na)
-hist(street.tot/2000)
-median(street.tot/2000) ## 9.9 ktC for whole-map sum (missing some values due to more things not being simmed; was in v5 11.1k tC across all map
-nonfor.tot <- apply(npp.street[aoi>800 & lulc!=1 & biom<20000, 8:1007], MARGIN=2, FUN=sum.na)
-summary(nonfor.tot/2000); hist(nonfor.tot/2000) ## about 7.5 ktC successfully simulated for the nonforest/nonbig pixels
-for.tot <- apply(npp.street[aoi>800 & lulc==1 | aoi>800 & biom>=20000, 8:1007], MARGIN=2, FUN=sum.na)
-summary(for.tot/2000)### about 2.3 simulated in forest/large-biomass pixels
-
-## how many sims do we have in the different pixel classes?
-dim(npp.street[lulc!=1 & aoi>800,]) ## 125k
-dim(npp.street[lulc==1 & aoi>800,]) ## 11.3k
-na.detect <- function(x){sum(is.na(x))}
-nonfor.sims <- apply(npp.street[aoi>800 & lulc!=1, 8:1007], MARGIN=1, FUN=na.detect)
-table(nonfor.sims) ### 95352 nonforest pix have 1000 successful retrievals, 29759 are not retrieved
-for.sims <- apply(npp.street[aoi>800 & lulc==1, 8:1007], MARGIN=1, FUN=na.detect)
-table(for.sims) ## 11248 forest pixels with no sim values, 22 that have em (???)
-bigbiom.sims <- apply(npp.street[lulc!=1 & biom>=20000, 8:1007], MARGIN=2, FUN=na.detect)
-dim(npp.street[lulc!=1 & biom>=20000 & aoi>800, 8:1007]) ### 2.7k of these
-View(npp.street[lulc!=1 & biom>=20000 & aoi>800, 1:20]) ## OK so there seem to be large-biomass simulations aplenty
-View(npp.street[lulc==1 & aoi>800, 1:20])
-dim(npp.street[lulc==1 & aoi>800, 1:20]) ## 11.3k forest pixels a lot of which seem to have simulation runs recorded
-
-quantile(nonfor.tot/2000, probs=c(0.05, 0.5, 0.95)) ## ##v6 4.4, 7.5 10.8k tC for simulated street trees, old v5 was 4.8-12.2k tC for simulated street trees
-
-
-
-### export the tifs
-npp.street <- fread("processed/results/street/streettrees.npp.simulator.v6.results.random.csv")
-median.na <- function(x){median(x, na.rm=T)}
-med.street <- apply(as.matrix(npp.street[,8:1007]), MARGIN=1, FUN=median.na)
-r <- biom
-r <- setValues(r, med.street)
-writeRaster(r, "processed/results/street/bos.street.V6.npp.med.tif", format="GTiff", overwrite=T)
-
+#### prepare data files with each random pixel realization as a column (within-pixel spread is across rows)
+#####
+# vers=6
+# npp.random.list <- list.files("processed/boston/biom_street/results")
+# npp.random.list <- npp.random.list[grep(npp.random.list, pattern = paste("npp.random.v", vers, ".weighted.*", sep=""))] ## V5 is 1)mixed model for DBH change; 2) urban-specific allometrics 3) consistent coefficients across each map realization;  4) uses biomass simulator V5 that also used urban-specific allometrics
+# npp.random.chunks <- sub('.*weighted.', '', npp.random.list)
+# npp.random.chunks <- sub("\\.sav.*", "", npp.random.chunks) ## later version get named .sav
+# 
+# sim.status <- as.data.table(read.csv(paste("processed/boston/biom_street/results/streettrees.sim.v", vers, ".status.csv", sep="")))
+# 
+# ### associate each set of npp retreivals to its pixel ID and write to disk
+# for(c in 1:length(npp.random.chunks)){
+#   load(paste("processed/boston/biom_street/results/", npp.random.list[c], sep="")) ## npp.random
+#   load(paste("processed/boston/biom_street/index.track.street.v", vers, ".weighted.", npp.random.chunks[c], ".sav", sep="")) ##  "index.track"
+#   tmp.npp <- index.track
+#   tmp.npp <- cbind(tmp.npp, matrix(nrow=length(index.track), ncol=1000, NA))
+#   for(i in 1:length(index.track)){ ## row-wise reconstruction
+#     if(sim.status[pix.ID==index.track[i],num.sims]<100){ ## for incomplete simulations
+#       tmp.npp[i,2:1001] <- c(npp.random[[i]], rep(NA, 1000-length(npp.random[[i]]))) ## fill in any remaining holes in the npp retreival
+#     }else{
+#       tmp.npp[i,2:1001] <- npp.random[[i]]
+#     }
+#     # print(paste("pixel", i))
+#   }
+#   write.csv(tmp.npp, file = paste("processed/boston/biom_street/results/street.npp.random.v", vers, ".estimates.", npp.random.chunks[c], ".csv", sep=""))
+#   print(paste("just wrote chunk", npp.random.chunks[c], "npp results to disk"))
+# }
+# 
+# ### load up results matrices and bind to single matrix
+# npp.results.list <- list.files("processed/boston/biom_street/results/")
+# npp.results.list <- npp.results.list[grep(pattern = paste0("street.npp.random.v", vers), npp.results.list)]
+# gosh <- data.frame()
+# for(c in 1:length(npp.results.list)){
+#   tmp <- read.csv(paste0("processed/boston/biom_street/results/", npp.results.list[c]))
+#   gosh <- rbind(gosh, tmp)
+#   print(paste('chunk', c, "loaded"))
+# }
+# 
+# ## merge npp simulation results in with map pixel data
+# library(data.table)
+# library(raster)
+# biom <- raster("processed/boston/bos.biom30m.tif") ## this is summed 1m kg-biomass to 30m pixel
+# aoi <- raster("processed/boston/bos.aoi30m.tif")
+# biom <- crop(biom, aoi) ## biomass was slightly buffered, need to clip to match canopy fraction raster
+# biom.dat <- as.data.table(as.data.frame(biom))
+# biom.dat[,aoi:=as.vector(getValues(aoi))]
+# can <- raster("processed/boston/bos.can.redux30m.tif")
+# can <- crop(can, aoi)
+# biom.dat[,can:=getValues(can)]
+# isa <- raster("processed/boston/bos.isa30m.tif")
+# isa <- crop(isa, aoi)
+# biom.dat[,isa:=getValues(isa)]
+# lulc <- raster("processed/boston/bos.lulc30m.lumped.tif")
+# lulc <- crop(lulc, aoi)
+# biom.dat[,lulc:=getValues(lulc)]
+# biom.dat[,pix.ID:=1:dim(biom.dat)[1]]
+# names(biom.dat)[1] <- "biom"
+# 
+# gosh <- gosh[,-1]
+# names(gosh) <- c("pix.ID", paste("npp.street.random.iter.", 1:1000, ".kg", sep=""))
+# map <- merge(x=biom.dat, y=gosh, by="pix.ID", all.x=T, all.y=T)
+# write.csv(map, paste0("processed/results/street/streettrees.npp.simulator.v", vers, ".results.random.csv"))
+# 
+# ### Exploratory of what's in the random street tree results iterations
+# npp.street <- as.data.table(read.csv("processed/results/street/streettrees.npp.simulator.v6.results.random.csv"))
+# sum.na <- function(x){sum(x, na.rm=T)}
+# street.tot <- apply(npp.street[, 8:1007], MARGIN=2, FUN=sum.na)
+# hist(street.tot/2000)
+# median(street.tot/2000) ## 9.9 ktC for whole-map sum (missing some values due to more things not being simmed; was in v5 11.1k tC across all map
+# nonfor.tot <- apply(npp.street[aoi>800 & lulc!=1 & biom<20000, 8:1007], MARGIN=2, FUN=sum.na)
+# summary(nonfor.tot/2000); hist(nonfor.tot/2000) ## about 7.5 ktC successfully simulated for the nonforest/nonbig pixels
+# for.tot <- apply(npp.street[aoi>800 & lulc==1 | aoi>800 & biom>=20000, 8:1007], MARGIN=2, FUN=sum.na)
+# summary(for.tot/2000)### about 2.3 simulated in forest/large-biomass pixels
+# 
+# ## how many sims do we have in the different pixel classes?
+# dim(npp.street[lulc!=1 & aoi>800,]) ## 125k
+# dim(npp.street[lulc==1 & aoi>800,]) ## 11.3k
+# na.detect <- function(x){sum(is.na(x))}
+# nonfor.sims <- apply(npp.street[aoi>800 & lulc!=1, 8:1007], MARGIN=1, FUN=na.detect)
+# table(nonfor.sims) ### 95352 nonforest pix have 1000 successful retrievals, 29759 are not retrieved
+# for.sims <- apply(npp.street[aoi>800 & lulc==1, 8:1007], MARGIN=1, FUN=na.detect)
+# table(for.sims) ## 11248 forest pixels with no sim values, 22 that have em (???)
+# bigbiom.sims <- apply(npp.street[lulc!=1 & biom>=20000, 8:1007], MARGIN=2, FUN=na.detect)
+# dim(npp.street[lulc!=1 & biom>=20000 & aoi>800, 8:1007]) ### 2.7k of these
+# View(npp.street[lulc!=1 & biom>=20000 & aoi>800, 1:20]) ## OK so there seem to be large-biomass simulations aplenty
+# View(npp.street[lulc==1 & aoi>800, 1:20])
+# dim(npp.street[lulc==1 & aoi>800, 1:20]) ## 11.3k forest pixels a lot of which seem to have simulation runs recorded
+# 
+# quantile(nonfor.tot/2000, probs=c(0.05, 0.5, 0.95)) ## ##v6 4.4, 7.5 10.8k tC for simulated street trees, old v5 was 4.8-12.2k tC for simulated street trees
+# 
+# 
+# 
+# ### export the tifs
+# npp.street <- fread("processed/results/street/streettrees.npp.simulator.v6.results.random.csv")
+# median.na <- function(x){median(x, na.rm=T)}
+# med.street <- apply(as.matrix(npp.street[,8:1007]), MARGIN=1, FUN=median.na)
+# r <- biom
+# r <- setValues(r, med.street)
+# writeRaster(r, "processed/results/street/bos.street.V6.npp.med.tif", format="GTiff", overwrite=T)
+# 
 # for(j in 1:4){
 #   r <- biom
 #   r <- setValues(r, map[[(j+5)]])
 #   writeRaster(r, paste("processed/boston/", names(map)[5+j], ".v1.tif", sep=""),
 #               format="GTiff", overwrite=T)
 # }
-
-
+# 
+# 
 # ## brief exploratory
 # ### do simulations track cell biomass well enough?
 # vers=4
