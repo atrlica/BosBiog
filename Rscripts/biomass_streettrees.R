@@ -942,7 +942,7 @@ library(lme4)
 ### version 3 (V43) resimmed each pixel x100 using the mixed effect dbh increment and specific allometrics for dbh-->volume-->biomass
 ### version 4 (v5) resimmed x100 with urban specific allometrics based on the V5 biomass simulator that also used urban-specific allometrics (instead of default hardwood) to estimate pixel biomass
 ### Version 5? (v6) 100x resims per pixel using the biomass>0 canopy raster for the 30m canopy fraction
-### Version 8 (v8) simulator V7 that had "taxa" urban-specific allometric matches and with foliar/root biomass components
+### Version 7 (v7) simulator V7 that had "taxa" urban-specific allometric matches and with foliar/root biomass components
 
 
 library(data.table)
@@ -1017,7 +1017,7 @@ if(length(notyet)!=0){
   atwork <- c(atwork, y)
   l <- data.frame(at.work=atwork)
   write.csv(l, file=paste("processed/boston/biom_street/results/atwork", vers, "csv", sep="."))
-  }else{stop("all pixels already processed")}
+}else{stop("all pixels already processed")}
 
 npp.dump.chunks <- y ## tell it to try this one
 
@@ -1041,7 +1041,7 @@ AGR.npp.random <- matrix(nrow=1.1E5, ncol=realize) ## matrix for AGR.NPP simulat
 fol.npp.random <- matrix(nrow=1.1E5, ncol=realize) ## matrix for foliage NPP simulations (first year annual foliar biomass)
 
 ### get a mass list of the dbh/genus/spp of the selected median pixel collections (i.e. one collection per pixel)
-med.genus.track <- character() ## just pre-allocating as best I can
+med.genus.track <- character() ## not clear how to preallocate these, and doesn't seem like they are incurring and increasing time penalty as the calcs proceed
 med.spp.track <- character()
 med.dbh.track <- numeric()
 
@@ -1136,13 +1136,12 @@ for(c in 1:length(npp.dump.chunks)){
       ### these get cleaned for G.triacanthos and G.biloba during growth processing
       
       ## Calculate NPP using the dbh increment model and the appointed allometrics
-      ## apply all 1000 combinations of dbh growth coefficients, using a new random simuation each time
+      ## list-wise approach -- store the results of each simulation as a vector element within list
       # AG.npp.random[[b]] <- rep(99999, 1000) ## this is where we are storing the vectors (1000 long) of npp estimates for each pixel
       # AGR.npp.random[[b]] <- rep(99999, 1000)
       # fol.npp.random[[b]] <- rep(99999, 1000)
       
       ### dbh increment model realizations x1000
-      ## ideally I could grab dbh.rand elements and then apply the dbh.incr coefficients in turn all at once
       ## vectorize the dbh increment and biomass calcs
       dbh.rand <- sample(1:length(cage.dbh[[b]]), size=realize, replace=T) ## randomly select a dbh collection
     
@@ -1169,42 +1168,43 @@ for(c in 1:length(npp.dump.chunks)){
       # do.call(dbh.incr, args = list(cage.dbh[[b]][[1]], b0.rand[1], b1.rand[1], b2.rand[1]))
       # lapply(cage.dbh[[b]][dbh.rand], FUN = )
       
-      ## preselecting the whole thing here is slower than using simple vectors below
-      # dbh.rand <- sample(1:length(cage.dbh[[b]]), size=1000, replace=T) ## randomly select a dbh collection
-      # tmp.dbh0 <- cage.dbh[[b]][dbh.rand] ### dbh collection at time 0
-      # tmp.spp <- cage.spp[[b]][dbh.rand] ## species of dbh collection
+      ## allocate the vectors to store each realization
       AG.dump <- rep(99999, realize)
       AGR.dump <- rep(99999, realize)
       fol.dump <- rep(99999, realize)
+      ## run the realizations on pixel b for p times
       for(p in 1:realize){  ## individual entries in cage.dbh are pixels, which contain vectors of dbh collections
+          ### try data.table approach ## this is the same speed as the other approaches
+          tt <- as.data.table(list(cage.dbh[[b]][[dbh.rand[p]]], cage.spp[[b]][[dbh.rand[p]]]))
+          tt <- merge(y, taxa[,.(Species, fol.eq.form, fol.fill.flag, fol.a, fol.b, fol.c, fol.d, dw.m2, kg.m3, biom.b0, biom.b1)],
+                     by.x="V2", by.y="Species")
+          tt[,biom0:=biom.b0*(V1^biom.b1)*kg.m3]
+          tt[V2=="Acer rubrum", biom0:=0.1970*(V1^2.1933)]
+          tt[V2=="Fagus grandifolia", biom0:=0.1957*(V1^2.3916)]
+          tt[,dbh1:=(dbh.incr(V1, b0.rand[p], b1.rand[p], b2.rand[p]))+V1]
+          tt[,biom1:=biom.b0*(dbh1^biom.b1)*kg.m3]
+          tt[V2=="Acer rubrum", biom1:=0.1970*(dbh1^2.1933)]
+          tt[V2=="Fagus grandifolia", biom1:=0.1957*(dbh1^2.3916)]
+          tt[fol.eq.form=="loglogw1", fol.biom:=fol.loglogw1(V1, fol.a, fol.b, fol.c)*dw.m2/1000]
+          tt[fol.eq.form=="loglogw2", fol.biom:=fol.loglogw2(V1, fol.a, fol.b, fol.c)*dw.m2/1000]
+          tt[fol.eq.form=="cub", fol.biom:=fol.cub(V1, fol.a, fol.b, fol.c, fol.d)*dw.m2/1000]
+          tt[fol.eq.form=="quad", fol.biom:=fol.quad(V1, fol.a, fol.b, fol.c)*dw.m2/1000]
+          tt[fol.fill.flag==1, fol.biom:=fol.fill(biom0)*biom0]
+          tt[,biom0.tot:=biom0*1.28]
+          tt[,biom1.tot:=biom1*1.28]
+          
+          AG.dump[p] <- sum(y[,biom1-biom0]) ## store the change in biomass as an npp estimate
+          AGR.dump[p] <- sum(y[,biom1.tot-biom0.tot])
+          fol.dump[p] <- y[,sum(fol.biom)]## store the year 0 annual foliar biomass as foliar NPP
+        
+          ### same calc using match approach with spp to find the specific allometrics
+          ## calculate starting biomass in aboveground
+          ## nomatch=1 is for Acer campestre, which gets generalized urban broadleaf biomass allometric
           # tmp.dbh0 <- cage.dbh[[b]][[dbh.rand]] ### dbh collection at time 0
           # tmp.spp <- cage.spp[[b]][[dbh.rand]] ## species of dbh collection
           ## fix names in tmp.spp so you can successfully look up the biomass allometrics
           # tmp.spp[[p]][which(tmp.spp[[p]]=="Gleditsia triacanthos var.inerm")] <- "Gleditsia triacanthos"
           # tmp.spp[[p]][which(tmp.spp[[p]]=="Ginko biloba")] <- "Ginkgo biloba"
-          
-          ### try data.table approach ## this is the same speed as the other approaches
-          y <- as.data.table(list(cage.dbh[[b]][[dbh.rand[p]]], cage.spp[[b]][[dbh.rand[p]]]))
-          y <- merge(y, taxa[,.(Species, fol.eq.form, fol.fill.flag, fol.a, fol.b, fol.c, fol.d, dw.m2, kg.m3, biom.b0, biom.b1)],
-                     by.x="V2", by.y="Species")
-          y[,biom0:=biom.b0*(V1^biom.b1)*kg.m3]
-          y[V2=="Acer rubrum", biom0:=0.1970*(V1^2.1933)]
-          y[V2=="Fagus grandifolia", biom0:=0.1957*(V1^2.3916)]
-          y[,dbh1:=(dbh.incr(V1, b0.rand[p], b1.rand[p], b2.rand[p]))+V1]
-          y[,biom1:=biom.b0*(dbh1^biom.b1)*kg.m3]
-          y[V2=="Acer rubrum", biom1:=0.1970*(dbh1^2.1933)]
-          y[V2=="Fagus grandifolia", biom1:=0.1957*(dbh1^2.3916)]
-          y[fol.eq.form=="loglogw1", fol.biom:=fol.loglogw1(V1, fol.a, fol.b, fol.c)*dw.m2/1000]
-          y[fol.eq.form=="loglogw2", fol.biom:=fol.loglogw2(V1, fol.a, fol.b, fol.c)*dw.m2/1000]
-          y[fol.eq.form=="cub", fol.biom:=fol.cub(V1, fol.a, fol.b, fol.c, fol.d)*dw.m2/1000]
-          y[fol.eq.form=="quad", fol.biom:=fol.quad(V1, fol.a, fol.b, fol.c)*dw.m2/1000]
-          y[fol.fill.flag==1, fol.biom:=fol.fill(biom0)*biom0]
-          y[,biom0.tot:=biom0*1.28]
-          y[,biom1.tot:=biom1*1.28]
-          
-          ### fast match the genus to the specific allometric
-          ## calculate starting biomass in aboveground
-          ## nomatch=1 is for Acer campestre, which gets generalized urban broadleaf biomass allometric
           # tmp.biom0 <- taxa[match(tmp.spp[[p]], taxa$Species, nomatch=1), biom.b0]*(tmp.dbh0[[p]]^taxa[match(tmp.spp[[p]], taxa$Species, nomatch=1), biom.b1])*taxa[match(tmp.spp[[p]], taxa$Species, nomatch=1), kg.m3]
           ## make special case for A.rubrum and F.grandifolia
           # tmp.biom0[tmp.spp[[p]]=="Acer rubrum"] <- 0.1970*tmp.dbh0[[p]][tmp.spp[[p]]=="Acer rubrum"]^2.1933
@@ -1220,14 +1220,10 @@ for(c in 1:length(npp.dump.chunks)){
           # tmp.biom1[tmp.spp[[p]]=="Fagus grandifolia"] <- 0.1957*tmp.dbh1[tmp.spp[[p]]=="Fagus grandifolia"]^2.3916
           ## calculate with root biomass
           # tmp.biom1.tot <- 1.28*tmp.biom1
-          
+          #
           # AGR.npp.random[[b]][p] <- sum(tmp.biom1.tot-tmp.biom0.tot)
-          
-          # AG.npp.random[[b]][p] <- sum(y[,biom1-biom0]) ## store the change in biomass as an npp estimate
-          # AGR.npp.random[[b]][p] <- sum(y[,biom1.tot-biom0.tot])
-          AG.dump[p] <- sum(y[,biom1-biom0]) ## store the change in biomass as an npp estimate
-          AGR.dump[p] <- sum(y[,biom1.tot-biom0.tot])
-          
+          # AG.npp.random[[b]][p] <- sum(tmp.biom1-tmp.biom0)
+          #
           ## get at foliar biomass in the first year (apply each equation set in turn, then do the default)
           # fol.tmp <- numeric()
           # fol.tmp <- c(fol.tmp, do.call(fol.loglogw1,
@@ -1264,13 +1260,12 @@ for(c in 1:length(npp.dump.chunks)){
           #                               args=list(tmp.biom0[taxa[match(tmp.spp[[p]], taxa$Species), fol.fill.flag]==1]))*
           #                taxa[match(tmp.spp[[p]][taxa[match(tmp.spp[[p]], taxa$Species), fol.fill.flag]==1], taxa$Species), dw.m2]/1000)
           # fol.npp.random[[b]][p] <- sum(fol.tmp) ## store the year 0 annual foliar biomass as foliar NPP
-          fol.dump[p] <- y[,sum(fol.biom)]## store the year 0 annual foliar biomass as foliar NPP
-          
           # print(paste("pixel", b, "npp calc", p))
-          } ## end npp random estimator
+          } ## end loop p for npp random estimator
       } ## end else check for number of retrievals
           print(paste("finished with pixel", b))
     if(b%%1000==0){print(b)}
+          ### dump the npp results vectors into the preallocated matrices
           AG.npp.random[b,] <- AG.dump
           AGR.npp.random[b,] <- AGR.dump
           fol.npp.random[b,] <- fol.dump
@@ -1286,6 +1281,7 @@ for(c in 1:length(npp.dump.chunks)){
   med.pix <- cbind(index.track, dbh.grand, ba.grand, num.grand)
   if(c==1){colnames(med.pix) <- c("pix.ID", "med.pix.dbh", "med.pix.ba", "med.pix.num")}
   diag.final <- as.data.table(merge(pix.diag, med.pix, by="pix.ID"))
+  fwrite(diag.final, file=paste0("processed/boston/biom_street/results/streettrees.sim.v", vers, ".", npp.dump.chunks[c], "pix.diagnostics.csv"))
 
   ### 3) write out the complete vector of the dbh/spp/genus in every ID'd median pixel
   write.csv(med.genus.track, paste0("processed/boston/results/streettrees.sim.v", vers, ".", npp.dump.chunks[c], ".med.pix.genus.csv"))
