@@ -1,6 +1,6 @@
 ###
 ### final script for estimating tree distribution based on street tree records and running on the cluster
-#### NOTE for running on cluster, be sure to comment out Part 1 (analysis) and Part 3 (reconstruction) and let just the simulator run.
+#### NOTE for running on cluster, be sure to comment out Part 1 (analysis) and either Part 2 (simulator) or Part 3 (reconstruction)
 
 library(data.table)
 library(raster)
@@ -9,7 +9,6 @@ library(rgeos)
 library(lme4)
 
 # setwd("/projectnb/buultra/atrlica/FragEVI/")
-## oh I wish I had no worrrrrmmmmmsssss....
 
 
 ##
@@ -995,7 +994,7 @@ check <- list.files("processed/boston/biom_street/results")
 check <- check[grep(check, pattern=paste("AG.npp.random.v", vers, sep=""))] ### version label here
 already <- sub(".*weighted\\.", "", check)
 already <- as.numeric(sub("\\..*", "", already))
-notyet <- npp.dump.chunks[!(npp.dump.chunks%in%already)]
+notyet <- as.numeric(npp.dump.chunks[!(npp.dump.chunks%in%already)])
 
 ## if any chunks are not fully processed, next check to see if they're being worked on currently
 ## the one weakness of this (besides requiring manual launch of each chunk)
@@ -1019,7 +1018,14 @@ if(length(notyet)!=0){
   write.csv(l, file=paste("processed/boston/biom_street/results/atwork", vers, "csv", sep="."))
 }else{stop("all pixels already processed")}
 
+# y=10000 ## for manual control
 npp.dump.chunks <- y ## tell it to try this one
+
+## in case you have to manually update atwork
+# atwork <- read.csv(paste("processed/boston/biom_street/results/atwork", vers, "csv", sep="."))
+# kill.list <- c(16,30,36)*1000
+# atwork <- atwork[!(atwork$at.work%in%kill.list),]
+# write.csv(atwork, file=paste("processed/boston/biom_street/results/atwork", vers, "csv", sep="."))
 
 ### line up a list of randomly selected coefficients for the operatie dbh~growth model
 load("processed/mod.street.dbhdelta.me.sav") ## polynomial mixed effect with species
@@ -1036,9 +1042,9 @@ b2.rand <- rnorm(realize, mean=coef(summary(mod.street.dbhdelta.me))[3,1], sd=co
 pix.diag <- data.frame() ## chunkwise collected pixel diagnostics for all simulations (also tracks pix.ID in order of processing)
 med.pix <- data.frame() ## chunkwise summary of pixel collection in the ID'd median pixel
 
-AG.npp.random <- matrix(nrow=1.1E5, ncol=realize) ## matrix for AG.npp simulations (aboveground biomass change)
-AGR.npp.random <- matrix(nrow=1.1E5, ncol=realize) ## matrix for AGR.NPP simulations (aboveground+root biomass change)
-fol.npp.random <- matrix(nrow=1.1E5, ncol=realize) ## matrix for foliage NPP simulations (first year annual foliar biomass)
+AG.npp.random <- matrix(nrow=2000, ncol=realize) ## matrix for AG.npp simulations (aboveground biomass change)
+AGR.npp.random <- matrix(nrow=2000, ncol=realize) ## matrix for AGR.NPP simulations (aboveground+root biomass change)
+fol.npp.random <- matrix(nrow=2000, ncol=realize) ## matrix for foliage NPP simulations (first year annual foliar biomass)
 
 ### get a mass list of the dbh/genus/spp of the selected median pixel collections (i.e. one collection per pixel)
 med.genus.track <- character() ## not clear how to preallocate these, and doesn't seem like they are incurring and increasing time penalty as the calcs proceed
@@ -1145,38 +1151,15 @@ for(c in 1:length(npp.dump.chunks)){
       ## vectorize the dbh increment and biomass calcs
       dbh.rand <- sample(1:length(cage.dbh[[b]]), size=realize, replace=T) ## randomly select a dbh collection
     
-      # ee <- matrix(nrow=1000, data=(cage.dbh[[b]][dbh.rand]))
-      #         cage.dbh[[b]][dbh.rand]
-      # 
-      # as.list(c(b0.rand[1:4], b1.rand[1:4], b2.rand[1:4]))
-      # dum <- function(x, a, b, c){x+a-b+c}
-      # gee <- list()
-      # gee[[1]] <- seq(1:7)
-      # gee[[2]] <- seq(2:5)
-      # gee[[3]] <- seq(4:9)
-      # rgs <- list()
-      # rgs[["a"]] <- c(1,1,1)
-      # rgs[["b"]] <- c(10,1,5)
-      # rgs[["c"]] <- c(0,0,0)
-      # lapply(gee, FUN=dum, a=rgs$a, b=rgs$b, c=rgs$c)
-      # lapply(gee, FUN=dum, a=rgs[1], b=rgs[2], c=rgs[3])
-      # mapply(gee, FUN=dum, MoreArgs = rgs)
-      # dd <- lapply(cage.dbh[[b]][dbh.rand], FUN=dbh.incr, b0=as.list(b0.rand[1:4]), b1=as.list(b1.rand[1:4]), b2=as.list(b2.rand[1:4]))
-      # tt <- mapply(FUN = dbh.incr, cage.dbh[[b]][dbh.rand], MoreArgs = list(b0=list(b0.rand[1:4]), b1=list(b1.rand[1:4]), b2=list(b2.rand[1:4]))) ## this doesn't seem to work
-      # dbh.incr(cage.dbh[[b]][[dbh.rand[1]]], b0.rand[1], b1.rand[1], b2.rand[1])
-      # 
-      # do.call(dbh.incr, args = list(cage.dbh[[b]][[1]], b0.rand[1], b1.rand[1], b2.rand[1]))
-      # lapply(cage.dbh[[b]][dbh.rand], FUN = )
-      
       ## allocate the vectors to store each realization
       AG.dump <- rep(99999, realize)
       AGR.dump <- rep(99999, realize)
       fol.dump <- rep(99999, realize)
       ## run the realizations on pixel b for p times
       for(p in 1:realize){  ## individual entries in cage.dbh are pixels, which contain vectors of dbh collections
-          ### try data.table approach ## this is the same speed as the other approaches
+          ### data.table approach --> seems to be the same speed as the other approaches
           tt <- as.data.table(list(cage.dbh[[b]][[dbh.rand[p]]], cage.spp[[b]][[dbh.rand[p]]]))
-          tt <- merge(y, taxa[,.(Species, fol.eq.form, fol.fill.flag, fol.a, fol.b, fol.c, fol.d, dw.m2, kg.m3, biom.b0, biom.b1)],
+          tt <- merge(tt, taxa[,.(Species, fol.eq.form, fol.fill.flag, fol.a, fol.b, fol.c, fol.d, dw.m2, kg.m3, biom.b0, biom.b1)],
                      by.x="V2", by.y="Species")
           tt[,biom0:=biom.b0*(V1^biom.b1)*kg.m3]
           tt[V2=="Acer rubrum", biom0:=0.1970*(V1^2.1933)]
@@ -1192,11 +1175,11 @@ for(c in 1:length(npp.dump.chunks)){
           tt[fol.fill.flag==1, fol.biom:=fol.fill(biom0)*biom0]
           tt[,biom0.tot:=biom0*1.28]
           tt[,biom1.tot:=biom1*1.28]
-          
-          AG.dump[p] <- sum(y[,biom1-biom0]) ## store the change in biomass as an npp estimate
-          AGR.dump[p] <- sum(y[,biom1.tot-biom0.tot])
-          fol.dump[p] <- y[,sum(fol.biom)]## store the year 0 annual foliar biomass as foliar NPP
-        
+
+          AG.dump[p] <- sum(tt[,biom1-biom0]) ## store the change in biomass as an npp estimate
+          AGR.dump[p] <- sum(tt[,biom1.tot-biom0.tot])
+          fol.dump[p] <- tt[,sum(fol.biom)]## store the year 0 annual foliar biomass as foliar NPP
+
           ### same calc using match approach with spp to find the specific allometrics
           ## calculate starting biomass in aboveground
           ## nomatch=1 is for Acer campestre, which gets generalized urban broadleaf biomass allometric
@@ -1211,7 +1194,7 @@ for(c in 1:length(npp.dump.chunks)){
           # tmp.biom0[tmp.spp[[p]]=="Fagus grandifolia"] <- 0.1957*tmp.dbh0[[p]][tmp.spp[[p]]=="Fagus grandifolia"]^2.3916
           ## calculate with root biomass
           # tmp.biom0.tot <- 1.28*tmp.biom0
-          
+
           ## grow the trees and recalc the biomass
           # tmp.dbh1 <- dbh.incr(tmp.dbh0[[p]], b0.rand[p], b1.rand[p], b2.rand[p])+tmp.dbh0[[p]]
           # tmp.biom1 <- taxa[match(tmp.spp[[p]], taxa$Species, nomatch=1), biom.b0]*(tmp.dbh1^taxa[match(tmp.spp[[p]], taxa$Species, nomatch=1), biom.b1])*taxa[match(tmp.spp[[p]], taxa$Species, nomatch=1), kg.m3]
@@ -1232,14 +1215,14 @@ for(c in 1:length(npp.dump.chunks)){
           #                                         taxa[match(tmp.spp[[p]][taxa[match(tmp.spp[[p]], taxa$Species), fol.eq.form]=="loglogw1"], taxa$Species), fol.b],
           #                                         taxa[match(tmp.spp[[p]][taxa[match(tmp.spp[[p]], taxa$Species), fol.eq.form]=="loglogw1"], taxa$Species), fol.c]))*
           #                taxa[match(tmp.spp[[p]][taxa[match(tmp.spp[[p]], taxa$Species), fol.eq.form]=="loglogw1"], taxa$Species), dw.m2]/1000)
-          # 
+          #
           # fol.tmp <- c(fol.tmp, do.call(fol.loglogw2,
           #                               args=list(tmp.dbh0[[p]][taxa[match(tmp.spp[[p]], taxa$Species), fol.eq.form]=="loglogw2"],
           #                                         taxa[match(tmp.spp[[p]][taxa[match(tmp.spp[[p]], taxa$Species), fol.eq.form]=="loglogw2"], taxa$Species), fol.a],
           #                                         taxa[match(tmp.spp[[p]][taxa[match(tmp.spp[[p]], taxa$Species), fol.eq.form]=="loglogw2"], taxa$Species), fol.b],
           #                                         taxa[match(tmp.spp[[p]][taxa[match(tmp.spp[[p]], taxa$Species), fol.eq.form]=="loglogw2"], taxa$Species), fol.c]))*
           #                      taxa[match(tmp.spp[[p]][taxa[match(tmp.spp[[p]], taxa$Species), fol.eq.form]=="loglogw2"], taxa$Species), dw.m2]/1000)
-          # 
+          #
           # fol.tmp <- c(fol.tmp, do.call(fol.cub,
           #                               args=list(tmp.dbh0[[p]][taxa[match(tmp.spp[[p]], taxa$Species), fol.eq.form]=="cub"],
           #                                         taxa[match(tmp.spp[[p]][taxa[match(tmp.spp[[p]], taxa$Species), fol.eq.form]=="cub"], taxa$Species), fol.a],
@@ -1247,14 +1230,14 @@ for(c in 1:length(npp.dump.chunks)){
           #                                         taxa[match(tmp.spp[[p]][taxa[match(tmp.spp[[p]], taxa$Species), fol.eq.form]=="cub"], taxa$Species), fol.c],
           #                                         taxa[match(tmp.spp[[p]][taxa[match(tmp.spp[[p]], taxa$Species), fol.eq.form]=="cub"], taxa$Species), fol.d]))*
           #                      taxa[match(tmp.spp[[p]][taxa[match(tmp.spp[[p]], taxa$Species), fol.eq.form]=="cub"], taxa$Species), dw.m2]/1000)
-          # 
+          #
           # fol.tmp <- c(fol.tmp, do.call(fol.quad,
           #                               args=list(tmp.dbh0[[p]][taxa[match(tmp.spp[[p]], taxa$Species), fol.eq.form]=="quad"],
           #                                         taxa[match(tmp.spp[[p]][taxa[match(tmp.spp[[p]], taxa$Species), fol.eq.form]=="quad"], taxa$Species), fol.a],
           #                                         taxa[match(tmp.spp[[p]][taxa[match(tmp.spp[[p]], taxa$Species), fol.eq.form]=="quad"], taxa$Species), fol.b],
           #                                         taxa[match(tmp.spp[[p]][taxa[match(tmp.spp[[p]], taxa$Species), fol.eq.form]=="quad"], taxa$Species), fol.c]))*
           #                      taxa[match(tmp.spp[[p]][taxa[match(tmp.spp[[p]], taxa$Species), fol.eq.form]=="quad"], taxa$Species), dw.m2]/1000)
-          # 
+          #
           # ## fill in values for taxa not represented as a simple log-log model of foliar biomass frac~total biomass
           # fol.tmp <- c(fol.tmp, do.call(fol.fill,
           #                               args=list(tmp.biom0[taxa[match(tmp.spp[[p]], taxa$Species), fol.fill.flag]==1]))*
@@ -1281,47 +1264,110 @@ for(c in 1:length(npp.dump.chunks)){
   med.pix <- cbind(index.track, dbh.grand, ba.grand, num.grand)
   if(c==1){colnames(med.pix) <- c("pix.ID", "med.pix.dbh", "med.pix.ba", "med.pix.num")}
   diag.final <- as.data.table(merge(pix.diag, med.pix, by="pix.ID"))
-  fwrite(diag.final, file=paste0("processed/boston/biom_street/results/streettrees.sim.v", vers, ".", npp.dump.chunks[c], "pix.diagnostics.csv"))
+  fwrite(diag.final, file=paste0("processed/boston/biom_street/results/streettrees.sim.v", vers, ".", npp.dump.chunks[c], ".pix.diagnostics.csv"))
 
   ### 3) write out the complete vector of the dbh/spp/genus in every ID'd median pixel
-  write.csv(med.genus.track, paste0("processed/boston/results/streettrees.sim.v", vers, ".", npp.dump.chunks[c], ".med.pix.genus.csv"))
-  write.csv(med.dbh.track, paste0("processed/boston/results/streettrees.sim.v", vers, ".", npp.dump.chunks[c], ".med.pix.dbh.csv"))
-  write.csv(med.genus.track, paste0("processed/boston/results/streettrees.sim.v", vers, ".", npp.dump.chunks[c], ".med.pix.spp.csv"))
+  write.csv(med.genus.track, paste0("processed/boston/biom_street/results/streettrees.sim.v", vers, ".", npp.dump.chunks[c], ".med.pix.genus.csv"))
+  write.csv(med.dbh.track, paste0("processed/boston/biom_street/results/streettrees.sim.v", vers, ".", npp.dump.chunks[c], ".med.pix.dbh.csv"))
+  write.csv(med.spp.track, paste0("processed/boston/biom_street/results/streettrees.sim.v", vers, ".", npp.dump.chunks[c], ".med.pix.spp.csv"))
 } ## end chunk c loop
 
 ## this is very slow, ~15s to complete all 1000 realizations in each pixel (~2 per 100)
 ## have vectorized to the extent that's obvious, and cutting the median pixel diagnostics doesn't speed it up
+#####
 
-# # Collect simulation diagnostics and export
-# diag.final <- as.data.table(merge(pix.diag, med.pix, by="pix.ID"))
-# fwrite(container, paste("processed/boston/biom_street/results/streettrees.sim.v", vers, ".", npp.dump.chunks[c], ".diagnostics.csv", sep=""))
+
+### let's see if the median pixel simulation looks like the original street tree record
+#####
+# med.genus <- read.csv("processed/boston/biom_street/results/streettrees.sim.v7.10000.med.pix.genus.csv")
+# med.spp <- read.csv("processed/boston/biom_street/results/streettrees.sim.v7.10000.med.pix.spp.csv")
+# med.dbh <- read.csv("processed/boston/biom_street/results/streettrees.sim.v7.10000.med.pix.dbh.csv")
 # 
-# ## write out the vector of the dbh/spp/genus in every ID'd median pixel
-# write.csv(med.genus.track, paste0("processed/boston/results/streettrees.sim.v", vers, ".", npp.dump.chunks[c], ".med.pix.genus.csv"))
-# write.csv(med.dbh.track, paste0("processed/boston/results/streettrees.sim.v", vers, ".", npp.dump.chunks[c], ".med.pix.dbh.csv"))
-# write.csv(med.genus.track, paste0("processed/boston/results/streettrees.sim.v", vers, ".", npp.dump.chunks[c], ".med.pix.spp.csv"))
-
-# names(container) <- c("pix.ID", "biom.kg",
-#                        "med.tree.num.sim", "med.dbh.sim", "med.ba.sim", "med.biom.sim", ### simulator medians
-#                       "max.wts", "num.sims", "sim.incomp", "attempts", "proc.status", ## simulator health indicators
-#                       "med.npp.rand")
-
-
-# hist(container$biom.kg) ## just the cell biomass of the pixels simulated
-# hist(container$med.tree.num.sim); summary(container$med.tree.num.sim) # med 6 per pixel, up to 38 (slight decrease from using the earlier version with the more generous canopy -- there's been some stricture on putting in trees)
-# hist(container$med.dbh.sim); summary(container$med.dbh.sim) ## the median dbh of every sim, most sims have median dbh of about 25, range from below 20 to up to 40
-# hist(container$med.ba.sim) ## UP TO 3.5, @900m2/100% canopy = 39 m2/ha -- good so we don't get any higher than andy's edge plots
-# hist(container$max.wts) ## most get it done before 50 wt, but a substantial minority are maxing out
-# hist(container$num.sims) ## most get all 100 sims; a minority get less than 20, nothing gets 20-100
-# table(container$sim.incomp) ## 98k get a simulation; 9.6k get partial/failed
-# hist(container$attempts); summary(container$attempts) ## most only have to try a few hundred times, but a few go up to 400k times
-# hist(container$med.npp.rand); summary(container$med.npp.rand) ## median about 100 kg/pix, max is lower at 538 kg (previous sim maxes out at 685 kg/pix)
+# street.allo <- fread("processed/street.trees.dbh2.csv") 
+# street.allo <- street.allo[record.good==1,]
+# hist(med.dbh$x); summary(med.dbh$x)
+# summary(street.allo[record.good==1, dbh.2006]) ## so far simmed trees are a little smaller
+# length(med.dbh$x) ##10.6k trees in 2000 pix, about 5/pix
 # 
+# ### the median pixel collection for a chunk of 2000 pixels looks very close in genus distribution to the street record.
+# table(street.allo[record.good==1, genus])
+# table(med.genus$x) ## OK
+# length(med.genus$x[med.genus$x=="Acer"])/length(med.genus$x) ## 27%
+# street.allo[genus=="Acer", length(genus)]/dim(street.allo)[1] ## 27%
+# length(med.genus$x[med.genus$x=="Ginko"])/length(med.genus$x) ## 2%
+# street.allo[genus=="Ginkgo", length(genus)]/dim(street.allo)[1] ## 2%
+# length(med.genus$x[med.genus$x=="Fraxinus"])/length(med.genus$x) ## 8%
+# street.allo[genus=="Fraxinus", length(genus)]/dim(street.allo)[1] ## 7%
+# length(med.genus$x[med.genus$x=="Zelkova"])/length(med.genus$x) ## 8%
+# street.allo[genus=="Zelkova", length(genus)]/dim(street.allo)[1] ## 7%
+# length(med.genus$x[med.genus$x=="Pyrus"])/length(med.genus$x) ## 4%
+# street.allo[genus=="Pyrus", length(genus)]/dim(street.allo)[1] ## 3%
+# length(med.genus$x[med.genus$x=="Tilia"])/length(med.genus$x) ## 23%
+# street.allo[genus=="Tilia", length(genus)]/dim(street.allo)[1] ## 25%
+# length(med.genus$x[med.genus$x=="Gleditsia"])/length(med.genus$x) ## 13%
+# street.allo[genus=="Gleditsia", length(genus)]/dim(street.allo)[1] ## 12%
+# length(med.genus$x[med.genus$x=="Ulmus"])/length(med.genus$x) ## 2%
+# street.allo[genus=="Ulmus", length(genus)]/dim(street.allo)[1] ## 2%
+# length(med.genus$x[med.genus$x=="Quercus"])/length(med.genus$x) ## 4%
+# street.allo[genus=="Quercus", length(genus)]/dim(street.allo)[1] ## 4%
+# length(med.genus$x[med.genus$x=="Platanus"])/length(med.genus$x) ## 5%
+# street.allo[genus=="Platanus", length(genus)]/dim(street.allo)[1] ## 5%
+# length(med.genus$x[med.genus$x=="Prunus"])/length(med.genus$x) ## 3%
+# street.allo[genus=="Prunus", length(genus)]/dim(street.allo)[1] ## 2%
+# length(med.genus$x[med.genus$x=="Syringa"])/length(med.genus$x) ## 0.5%
+# street.allo[genus=="Syringa", length(genus)]/dim(street.allo)[1] ## 0.4%
+# length(med.genus$x[med.genus$x=="Malus"])/length(med.genus$x) ## 2%
+# street.allo[genus=="Malus", length(genus)]/dim(street.allo)[1] ## 2%
 # 
-# gawlie <- data.frame(cbind(container$pix.ID, container$num.sims, container$sim.incomp))
-# colnames(gawlie) <- c("pix.ID", "num.sims", "sim.incomp")
-# table(gawlie$sim.incomp) ## v6 is 98264 succeeded, 9622 failed (v5 was 5831 failed, 102055 worked)
-# write.csv(gawlie, paste("processed/boston/biom_street/results/streettrees.sim.v", vers, ".status.csv", sep=""))
+# table(med.spp$x) ## seems about the same, the up-front species names corrections did work
+# ### OK so generally the collection of shit as judged by the median pixel collection look a lot like the street tree collection
+# 
+# ### what do the simulations look like in terms of quality control
+# diag.final <- fread("processed/boston/biom_street/results/streettrees.sim.v7.10000pix.diagnostics.csv")
+# hist(diag.final$pix.biom30m); summary(diag.final$pix.biom30m) ## OK
+# plot(diag.final$pix.biom30m, diag.final$biom.sim.min, col="blue", ylim=c(5000, 10000))
+# points(diag.final$pix.biom30m, diag.final$biom.sim.med, col="green", ylim=c(0, 22000))
+# points(diag.final$pix.biom30m, diag.final$biom.sim.max, col="red", ylim=c(0, 22000))
+# plot(diag.final$pix.biom30m-diag.final$biom.sim.med)
+# hist(diag.final$pix.biom30m-diag.final$biom.sim.med); summary(diag.final$pix.biom30m-diag.final$biom.sim.med) ## median overestimate a tiny bit
+# hist(diag.final$pix.biom30m-diag.final$biom.sim.min); summary(diag.final$pix.biom30m-diag.final$biom.sim.min) ## minimum is almost always beneath the pixel value, never more than 100kg
+# hist(diag.final$pix.biom30m-diag.final$biom.sim.max); summary(diag.final$pix.biom30m-diag.final$biom.sim.max) ## maximum is almost always over the pixel value, never more than 100kg
+# hist(diag.final$num.sims.attempted); summary(diag.final$num.sims.attempted) ## like 300, but up to 30k
+# hist(diag.final$num.sims.sucessful); summary(diag.final$num.sims.sucessful) ## only a tiny number are partial
+# diag.final[proc.status==0,] ## 43 total
+# hist(diag.final[proc.status==0, num.sims.attempted]) ## they fail within 5000 tries
+# hist(diag.final[proc.status==0, num.sims.sucessful]) ## all below 20 sims when partial
+# hist(diag.final[,wts.med]) ## ok most aren't very overweighted
+# hist(diag.final[proc.status==0, wts.med]) ## all the fails are way up at max
+# hist(diag.final$med.tree.num); summary(diag.final$med.tree.num) ## median of all sims, about 2-7
+# hist(diag.final$med.pix.num); summary(diag.final$med.pix.num) ## same thing when you get the number of the median pixel sim
+# hist(diag.final$med.pix.ID) ## these make sense 1-100
+# hist(diag.final$med.pix.dbh); summary(diag.final$med.pix.dbh)
+# hist(med.dbh.track); summary(med.dbh.track) ## these are very comparable, med 22.9 cm
+# hist(diag.final$med.pix.ba/(900/1E4)) ## ok up to 40 m2/ha assuming 100% canopy
+# ### these all seem OK
+# 
+# load("processed/boston/biom_street/results/AG.npp.random.v7.weighted.10000.sav")
+# head(AG.npp.random); dim(AG.npp.random)
+# AG.npp.random <- AG.npp.random[!is.na(AG.npp.random[,1]),]
+# hist(apply(AG.npp.random, FUN=median, MARGIN=1)) ## the median by pixel, most below 400
+# summary(apply(AG.npp.random, FUN=median, MARGIN=1)) ## median 63, 34-134 kg
+# hist(apply(AG.npp.random, FUN=sum, MARGIN=2)/2000) ## between 50-150 MgC
+# 
+# load("processed/boston/biom_street/results/AGR.npp.random.v7.weighted.10000.sav")
+# head(AGR.npp.random); dim(AGR.npp.random)
+# AGR.npp.random <- AGR.npp.random[!is.na(AGR.npp.random[,1]),]
+# hist(apply(AGR.npp.random, FUN=median, MARGIN=1)) ## the median by pixel, a bit above AG.npp
+# summary(apply(AGR.npp.random, FUN=median, MARGIN=1)) ## median 81, 43-172 kg
+# hist(apply(AGR.npp.random, FUN=sum, MARGIN=2)/2000) ## between 80-200 MgC
+# 
+# load("processed/boston/biom_street/results/fol.npp.random.v7.weighted.10000.sav")
+# head(fol.npp.random); dim(fol.npp.random)
+# fol.npp.random <- fol.npp.random[!is.na(fol.npp.random[,1]),]
+# hist(apply(fol.npp.random, FUN=median, MARGIN=1)) ## the median by pixel, most below 300
+# summary(apply(fol.npp.random, FUN=median, MARGIN=1)) ## median 47, 18-115 kg
+# hist(apply(fol.npp.random, FUN=sum, MARGIN=2)/2000) ## between 85-89 MgC
+## ok so less variability here because the only variablity is what we get from the dbh collection we happen to get and the biomass target of the pixel (no growth model uncertainty)
 #####
 
 ###
