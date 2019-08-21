@@ -934,7 +934,7 @@ library(lme4)
 
 
 ##
-#### PART 3: RECONSTRUCTION OF SIMULATOR RESULTS
+#### PART 3: NPP CALCULATION AND RECONSTRUCTION OF SIMULATOR RESULTS
 #####
 ### version 1 (not labeled) used static biomass growth equation
 ### version 2 (V42) resimmed each pixel x100 using the mixed effects dbh increment model and Jenkins/Chognacky allometrics to estimate npp
@@ -988,6 +988,7 @@ obj.dump <- list.files("processed/boston/biom_street/")
 npp.dump <- obj.dump[grep(obj.dump, pattern = paste("dbh.street.v", vers, ".weighted*", sep=""))] ## use npp empty file as a way of organizing the work
 npp.dump.chunks <- sub('.*weighted.', '', npp.dump)
 npp.dump.chunks <- sub("\\.sav.*", "", npp.dump.chunks)
+### this process will loop through all the chunks and collate, unless you activate parallelization below 
 
 ## check existing npp files, find next file to write
 check <- list.files("processed/boston/biom_street/results")
@@ -996,11 +997,14 @@ already <- sub(".*weighted\\.", "", check)
 already <- as.numeric(sub("\\..*", "", already))
 notyet <- as.numeric(npp.dump.chunks[!(npp.dump.chunks%in%already)])
 
-## if any chunks are not fully processed, next check to see if they're being worked on currently
+## manual control for parallel processing: set which chunk to work on
+# npp.dump.chunks <- y ## tell it to try this one
+
+## or: Automatically select the next chunk that is not either finished or in progress
 ## the one weakness of this (besides requiring manual launch of each chunk)
 ## is that if a script times out or otherwise aborts before successfully completing after the step below
 ## it can't release the unfinished job from being "in process" and will keep the other scripts from running that chunk
-if(length(notyet)!=0){
+if(length(notyet)!=0 & length(npp.dump.chunks)>1){
   if(!file.exists(paste("processed/boston/biom_street/results/atwork", vers, "csv", sep="."))){ ## if it isn't there start a file of who is working now
     l <- data.frame(at.work=integer())
     write.csv(l, file=paste("processed/boston/biom_street/results/atwork", vers, "csv", sep="."))
@@ -1017,13 +1021,11 @@ if(length(notyet)!=0){
   l <- data.frame(at.work=atwork)
   write.csv(l, file=paste("processed/boston/biom_street/results/atwork", vers, "csv", sep="."))
 }else{stop("all pixels already processed")}
-
-# y=10000 ## for manual control
 npp.dump.chunks <- y ## tell it to try this one
 
 ## in case you have to manually update atwork
 # atwork <- read.csv(paste("processed/boston/biom_street/results/atwork", vers, "csv", sep="."))
-# kill.list <- c(16,30,36)*1000
+# kill.list <- c(62, 66, 90)*1000
 # atwork <- atwork[!(atwork$at.work%in%kill.list),]
 # write.csv(atwork, file=paste("processed/boston/biom_street/results/atwork", vers, "csv", sep="."))
 
@@ -1036,12 +1038,12 @@ b2.rand <- rnorm(realize, mean=coef(summary(mod.street.dbhdelta.me))[3,1], sd=co
 # plot(x, mean(b0.rand)+(mean(b1.rand)*x)+(mean(b2.rand)*(x^2))) ## looks like a believable growth curve
 
 ### set up results containers
-# AG.npp.random <- list() ## chunkwise container for AG.npp simulations (aboveground biomass change)
-# AGR.npp.random <- list() ## chunkwise container for AGR.NPP simulations (aboveground+root biomass change)
-# fol.npp.random <- list() ## chunkwise container for foliage NPP simulations (first year annual foliar biomass)
 pix.diag <- data.frame() ## chunkwise collected pixel diagnostics for all simulations (also tracks pix.ID in order of processing)
 med.pix <- data.frame() ## chunkwise summary of pixel collection in the ID'd median pixel
 
+# AG.npp.random <- list() ## chunkwise container for AG.npp simulations (aboveground biomass change)
+# AGR.npp.random <- list() ## chunkwise container for AGR.NPP simulations (aboveground+root biomass change)
+# fol.npp.random <- list() ## chunkwise container for foliage NPP simulations (first year annual foliar biomass)
 AG.npp.random <- matrix(nrow=2000, ncol=realize) ## matrix for AG.npp simulations (aboveground biomass change)
 AGR.npp.random <- matrix(nrow=2000, ncol=realize) ## matrix for AGR.NPP simulations (aboveground+root biomass change)
 fol.npp.random <- matrix(nrow=2000, ncol=realize) ## matrix for foliage NPP simulations (first year annual foliar biomass)
@@ -1113,13 +1115,18 @@ for(c in 1:length(npp.dump.chunks)){
   print(paste("patience! Doing pixel-level growth simulations and median pixel properties on chunk", npp.dump.chunks[c]))
   
   for(b in 1:length(cage.dbh)){ ## b is an individual pixel, with 100 separately simulated dbh collections in each
-    ### scrub the badly labeled species names first
+    ### scrub the badly labeled species names
     cleanup1 <- function(x){x[x=="Gleditsia triacanthos var. inerm"] <- "Gleditsia triacanthos"; return(x)}
     cleanup2 <- function(x){x[x=="Ginko biloba"] <- "Ginkgo biloba"; return(x)}
     cage.spp[[b]] <- lapply(cage.spp[[b]], FUN=cleanup1)
     cage.spp[[b]] <- lapply(cage.spp[[b]], FUN=cleanup2)
     
-    if(length(cage.dbh[[b]])<5){  ## if too few successful sims were made for this pixel
+    ## allocate the vectors to store each realization
+    AG.dump <- rep(99999, realize)
+    AGR.dump <- rep(99999, realize)
+    fol.dump <- rep(99999, realize)
+    
+    if(length(cage.dbh[[b]])<5){  ## if too few successful sims were made for this pixel (this is not apparently detecting incomplete pixels)
       ba.grand[b] <- NA
       dbh.grand[b] <- NA
       num.grand[b] <- NA
@@ -1147,15 +1154,10 @@ for(c in 1:length(npp.dump.chunks)){
       # AGR.npp.random[[b]] <- rep(99999, 1000)
       # fol.npp.random[[b]] <- rep(99999, 1000)
       
-      ### dbh increment model realizations x1000
-      ## vectorize the dbh increment and biomass calcs
+      ### sample simulator outputs for dbh collections
       dbh.rand <- sample(1:length(cage.dbh[[b]]), size=realize, replace=T) ## randomly select a dbh collection
     
-      ## allocate the vectors to store each realization
-      AG.dump <- rep(99999, realize)
-      AGR.dump <- rep(99999, realize)
-      fol.dump <- rep(99999, realize)
-      ## run the realizations on pixel b for p times
+      ## run the selected simulator realizations on pixel b for p times
       for(p in 1:realize){  ## individual entries in cage.dbh are pixels, which contain vectors of dbh collections
           ### data.table approach --> seems to be the same speed as the other approaches
           tt <- as.data.table(list(cage.dbh[[b]][[dbh.rand[p]]], cage.spp[[b]][[dbh.rand[p]]]))
@@ -1370,166 +1372,272 @@ for(c in 1:length(npp.dump.chunks)){
 ## ok so less variability here because the only variablity is what we get from the dbh collection we happen to get and the biomass target of the pixel (no growth model uncertainty)
 #####
 
-###
-#### prepare data files with each random pixel realization as a column (within-pixel spread is across rows)
+##
+### prepare data files with each random pixel realization as a column (within-pixel spread is across rows)
 #####
-# vers=6
-# npp.random.list <- list.files("processed/boston/biom_street/results")
-# npp.random.list <- npp.random.list[grep(npp.random.list, pattern = paste("npp.random.v", vers, ".weighted.*", sep=""))] ## V5 is 1)mixed model for DBH change; 2) urban-specific allometrics 3) consistent coefficients across each map realization;  4) uses biomass simulator V5 that also used urban-specific allometrics
-# npp.random.chunks <- sub('.*weighted.', '', npp.random.list)
-# npp.random.chunks <- sub("\\.sav.*", "", npp.random.chunks) ## later version get named .sav
+library(data.table)
+library(raster)
+setwd("/projectnb/buultra/atrlica/BosBiog")
+vers=7 ## which simulator version are we working on
+npp.random.list <- list.files("processed/boston/biom_street/results")
+npp.random.list <- npp.random.list[grep(npp.random.list, pattern = paste("npp.random.v", vers, ".weighted.*", sep=""))] ## V5 is 1)mixed model for DBH change; 2) urban-specific allometrics 3) consistent coefficients across each map realization;  4) uses biomass simulator V5 that also used urban-specific allometrics
+npp.random.chunks <- sub('.*weighted.', '', npp.random.list)
+npp.random.chunks <- sub("\\.sav.*", "", npp.random.chunks) ## later version get named .sav
+npp.random.chunks <- (npp.random.chunks[!duplicated(npp.random.chunks)])
+
+### set up containers
+# diag.omni <- data.table()
+# index.omni <- integer()
+AG.npp.omni <- data.frame()
+AGR.npp.omni <- data.frame()
+fol.npp.omni <- data.frame()
+
+### associate each set of npp retreivals to its pixel ID and diagnostic status
+for(c in 1:length(npp.random.chunks)){
+  ## load up tracking
+  sim.status <- as.data.table(read.csv(paste("processed/boston/biom_street/results/streettrees.sim.v", vers, ".", npp.random.chunks[c], ".pix.diagnostics.csv", sep="")))
+  # diag.omni <- rbind(diag.omni, sim.status) ## compile diagnostics into a single omnibus
+  # load(paste("processed/boston/biom_street/index.track.street.v", vers, ".weighted.", npp.random.chunks[c], ".sav", sep="")) ##  "index.track"
+  # index.omni <- c(index.omni, index.track)
+
+  ### load up the npp calcs for this chunk
+  load(paste0("processed/boston/biom_street/results/AG.npp.random.v", vers, ".weighted.", npp.random.chunks[c], ".sav")) ## AG.npp.random, matrix 2000x1000
+  load(paste0("processed/boston/biom_street/results/AGR.npp.random.v", vers, ".weighted.", npp.random.chunks[c], ".sav")) ## AGR.npp.random, matrix 2000x1000
+  load(paste0("processed/boston/biom_street/results/fol.npp.random.v", vers, ".weighted.", npp.random.chunks[c], ".sav")) ## fol.npp.random, matrix 2000x1000
+
+  ## check that dimensions of diagnostics and npp results match up, fix it if it's the tail, otherwise warn me of fuckery afoot
+  if(dim(AG.npp.random)[1]!=dim(sim.status)[1]){
+    print(paste("Diagnostics chunk", npp.random.chunks[c], "is", dim(sim.status)[1]-dim(AG.npp.random)[1], "rows longer than NPP results"))
+    if(npp.random.chunks[c]==108000){
+      AG.npp.random <- AG.npp.random[1:dim(sim.status)[1],]
+      AGR.npp.random <- AGR.npp.random[1:dim(sim.status)[1],]
+      fol.npp.random <- fol.npp.random[1:dim(sim.status)[1],]
+      print("fixed tail overrun on final chunk")
+      }
+    }
+
+  ### can we just package up the shiat directly (all npp calcs with their diagnostics)
+  AG.npp.omni.tmp <- as.data.frame(cbind(sim.status, AG.npp.random))
+  AGR.npp.omni.tmp <- as.data.frame(cbind(sim.status, AGR.npp.random))
+  fol.npp.omni.tmp <- as.data.frame(cbind(sim.status, fol.npp.random))
+
+  AG.npp.omni <- rbind(AG.npp.omni, AG.npp.omni.tmp)
+  AGR.npp.omni <- rbind(AGR.npp.omni, AGR.npp.omni.tmp)
+  fol.npp.omni <- rbind(fol.npp.omni, fol.npp.omni.tmp)
+  print(paste("compiled npp results for chunk", npp.random.chunks[c]))
+  # for(i in 1:length(index.track)){ ## row-wise reconstruction
+  #   if(sim.status[pix.ID==index.track[i],num.sims]<100){ ## for incomplete simulations
+  #     tmp.npp[i,2:1001] <- c(npp.random[[i]], rep(NA, 1000-length(npp.random[[i]]))) ## fill in any remaining holes in the npp retreival
+  #   }else{
+  #     tmp.npp[i,2:1001] <- npp.random[[i]]
+  #   }
+  #   # print(paste("pixel", i))
+  # }
+  # write.csv(tmp.npp, file = paste("processed/boston/biom_street/results/street.npp.random.v", vers, ".estimates.", npp.random.chunks[c], ".csv", sep=""))
+  # print(paste("just wrote chunk", npp.random.chunks[c], "npp results to disk"))
+  }
+
+### check out the compiled results
+dim(AG.npp.omni) ## 107866 pixels processed, 1000 columns of simulation + 16 col diagnostics
+dim(AGR.npp.omni) ## 107866 pixels processed, 1000 columns of simulation + 16 col diagnostics
+dim(fol.npp.omni) ## 107866 pixels processed, 1000 columns of simulation + 16 col diagnostics
+names(AG.npp.omni)[17:1016] <- paste0("AG.npp.iter.", 1:1000)
+names(AGR.npp.omni)[17:1016] <- paste0("AGR.npp.iter.", 1:1000)
+names(fol.npp.omni)[17:1016] <- paste0("fol.npp.iter.", 1:1000)
+
+AG.npp.omni <- as.data.table(AG.npp.omni)
+AGR.npp.omni <- as.data.table(AGR.npp.omni)
+fol.npp.omni <- as.data.table(fol.npp.omni)
+dim(AG.npp.omni[sim.incomp==1,]) ## 10762 sims flagged as incomplete
+dim(AG.npp.omni[num.sims.sucessful<40,]) ## 10605 incomplete sims with few simulations
+dim(AG.npp.omni[num.sims.sucessful==0,]) ## we didn't run NPP calcs on anything without at least a single successful simulation
+hist(AG.npp.omni[num.sims.sucessful<40, num.sims.sucessful]); summary(AG.npp.omni[num.sims.sucessful<40, num.sims.sucessful]) ## vast bulk got a single sim
+dim(AG.npp.omni[num.sims.sucessful<=5,])[1]/dim(AG.npp.omni[num.sims.sucessful<40,])[1] ## 87% get less than 5 (8019), 76% of incompletes get only one
+### a fair cutoff for use is 40 sims to work with
+dim(AG.npp.omni[num.sims.sucessful>=40,])[1]/dim(AG.npp.omni)[1] ## 90% of the calcd npps come from sims >40
+dim(AG.npp.omni[num.sims.sucessful>=40 & sim.incomp==1,])[1]/dim(AG.npp.omni[sim.incomp==1,])[1] ## this is marginal, 1.45% of incompletes have at least 40 sims
+
+hist(apply(AG.npp.omni[num.sims.sucessful>=40, 17:1016], MARGIN=2, FUN=sum)/2000) ## spread of map-total NPP in AG
+summary(apply(AG.npp.omni[num.sims.sucessful>=40, 17:1016], MARGIN=2, FUN=sum)/2000) ## 8.5-9.0 kMgC
+hist(apply(AGR.npp.omni[num.sims.sucessful>=40, 17:1016], MARGIN=2, FUN=sum)/2000) ## map total NPP in AG+R
+summary(apply(AGR.npp.omni[num.sims.sucessful>=40, 17:1016], MARGIN=2, FUN=sum)/2000) ## 10.9-11.5 kMgC
+hist(apply(fol.npp.omni[num.sims.sucessful>=40, 17:1016], MARGIN=2, FUN=sum)/2000) ## map total NPP in fol
+summary(apply(fol.npp.omni[num.sims.sucessful>=40, 17:1016], MARGIN=2, FUN=sum)/2000) ## 7.7-7.7 kMgC
+median(apply(fol.npp.omni[num.sims.sucessful>=40, 17:1016], MARGIN=2, FUN=sum)/2000)/median(apply(AG.npp.omni[num.sims.sucessful>=40, 17:1016], MARGIN=2, FUN=sum)/2000)
+## foliar NPP is 88% of the aboveground biomass NPP (woody increment, excluding roots)
+
+### calculate pixel medians
+AG.npp.omni[,AG.npp.pix.med:=apply(AG.npp.omni[,17:1016], MARGIN=1, FUN=median)]
+AG.npp.omni[num.sims.sucessful<40, AG.npp.pix.med:=NA] ## kill median pixel for the too-few-sims
+hist(AG.npp.omni[num.sims.sucessful>=40, AG.npp.pix.med])## looks right, up to 800kg but most below 200kg
+AGR.npp.omni[,AGR.npp.pix.med:=apply(AGR.npp.omni[,17:1016], MARGIN=1, FUN=median)]
+AGR.npp.omni[num.sims.sucessful<40, AGR.npp.pix.med:=NA] ## kill median pixel for the too-few-sims
+hist(AGR.npp.omni[num.sims.sucessful>=40, AGR.npp.pix.med])## looks right, slightly amped up from AG alone
+fol.npp.omni[,fol.npp.pix.med:=apply(fol.npp.omni[,17:1016], MARGIN=1, FUN=median)]
+fol.npp.omni[num.sims.sucessful<40, fol.npp.pix.med:=NA] ## kill median pixel for the too-few-sims
+hist(fol.npp.omni[num.sims.sucessful>=40, fol.npp.pix.med])## up to 700 kg, most below 100
+
+## calculate root-only NPP
+root.npp.omni <- AGR.npp.omni[,17:1016]-AG.npp.omni[,17:1016]
+root.npp.omni <- cbind(AG.npp.omni[,1:16], root.npp.omni)
+names(root.npp.omni)[17:1016] <- paste0("root.npp.iter.", 1:1000)
+root.npp.omni[,root.npp.pix.med:=apply(root.npp.omni[,17:1016], MARGIN=1, FUN=median)]
+root.npp.omni[num.sims.sucessful<40, root.npp.pix.med:=NA] ## kill median pixel for the too-few-sims
+hist(root.npp.omni[num.sims.sucessful>=40, root.npp.pix.med]) ## up to 200 kg, most below 50kg
+
+### calculate TOTAL NPP
+tot.npp.omni <- AGR.npp.omni[,17:1016]+fol.npp.omni[,17:1016]
+tot.npp.omni <- cbind(AG.npp.omni[,1:16], tot.npp.omni)
+names(tot.npp.omni)[17:1016] <- paste0("total.npp.iter.", 1:1000)
+tot.npp.omni[,tot.npp.pix.med:=apply(tot.npp.omni[,17:1016], MARGIN=1, FUN=median)]
+tot.npp.omni[num.sims.sucessful<40, tot.npp.pix.med:=NA] ## kill median pixel for the too-few-sims
+hist(tot.npp.omni[num.sims.sucessful>=40, tot.npp.pix.med]) ## up to 1500kg per cell!
+summary(tot.npp.omni[,tot.npp.pix.med]) ### median pix values between 105-585 kg
+tot.npp.omni[num.sims.sucessful>=40, sum(tot.npp.pix.med, na.rm=T)/2000]/1000 ## median map total is 18.8 kMgC/yr
+summary(apply(tot.npp.omni[num.sims.sucessful>=40,17:1016], MARGIN=2, FUN=sum, na.rm=T)/2000)/1000 ## 18.6-19.3 kMgC AG+root+fol
+
+
+### bug hunt for the fill values... :-|
+# dim(AG.npp.omni[AG.npp.iter.1000==99999,]) ## 1169 99999 values in here
+# dim(AGR.npp.omni[AGR.npp.iter.2==99999,])
+# dim(fol.npp.omni[fol.npp.iter.2==99999,])
+# dim(root.npp.omni[root.npp.iter.2==99999,])
+# dim(tot.npp.omni[total.npp.iter.2==99999,])
 # 
-# sim.status <- as.data.table(read.csv(paste("processed/boston/biom_street/results/streettrees.sim.v", vers, ".status.csv", sep="")))
-# 
-# ### associate each set of npp retreivals to its pixel ID and write to disk
-# for(c in 1:length(npp.random.chunks)){
-#   load(paste("processed/boston/biom_street/results/", npp.random.list[c], sep="")) ## npp.random
-#   load(paste("processed/boston/biom_street/index.track.street.v", vers, ".weighted.", npp.random.chunks[c], ".sav", sep="")) ##  "index.track"
-#   tmp.npp <- index.track
-#   tmp.npp <- cbind(tmp.npp, matrix(nrow=length(index.track), ncol=1000, NA))
-#   for(i in 1:length(index.track)){ ## row-wise reconstruction
-#     if(sim.status[pix.ID==index.track[i],num.sims]<100){ ## for incomplete simulations
-#       tmp.npp[i,2:1001] <- c(npp.random[[i]], rep(NA, 1000-length(npp.random[[i]]))) ## fill in any remaining holes in the npp retreival
-#     }else{
-#       tmp.npp[i,2:1001] <- npp.random[[i]]
-#     }
-#     # print(paste("pixel", i))
-#   }
-#   write.csv(tmp.npp, file = paste("processed/boston/biom_street/results/street.npp.random.v", vers, ".estimates.", npp.random.chunks[c], ".csv", sep=""))
-#   print(paste("just wrote chunk", npp.random.chunks[c], "npp results to disk"))
-# }
-# 
-# ### load up results matrices and bind to single matrix
-# npp.results.list <- list.files("processed/boston/biom_street/results/")
-# npp.results.list <- npp.results.list[grep(pattern = paste0("street.npp.random.v", vers), npp.results.list)]
-# gosh <- data.frame()
-# for(c in 1:length(npp.results.list)){
-#   tmp <- read.csv(paste0("processed/boston/biom_street/results/", npp.results.list[c]))
-#   gosh <- rbind(gosh, tmp)
-#   print(paste('chunk', c, "loaded"))
-# }
-# 
-# ## merge npp simulation results in with map pixel data
-# library(data.table)
-# library(raster)
-# biom <- raster("processed/boston/bos.biom30m.tif") ## this is summed 1m kg-biomass to 30m pixel
-# aoi <- raster("processed/boston/bos.aoi30m.tif")
-# biom <- crop(biom, aoi) ## biomass was slightly buffered, need to clip to match canopy fraction raster
-# biom.dat <- as.data.table(as.data.frame(biom))
-# biom.dat[,aoi:=as.vector(getValues(aoi))]
-# can <- raster("processed/boston/bos.can.redux30m.tif")
-# can <- crop(can, aoi)
-# biom.dat[,can:=getValues(can)]
-# isa <- raster("processed/boston/bos.isa30m.tif")
-# isa <- crop(isa, aoi)
-# biom.dat[,isa:=getValues(isa)]
-# lulc <- raster("processed/boston/bos.lulc30m.lumped.tif")
-# lulc <- crop(lulc, aoi)
-# biom.dat[,lulc:=getValues(lulc)]
-# biom.dat[,pix.ID:=1:dim(biom.dat)[1]]
-# names(biom.dat)[1] <- "biom"
-# 
-# gosh <- gosh[,-1]
-# names(gosh) <- c("pix.ID", paste("npp.street.random.iter.", 1:1000, ".kg", sep=""))
-# map <- merge(x=biom.dat, y=gosh, by="pix.ID", all.x=T, all.y=T)
-# write.csv(map, paste0("processed/results/street/streettrees.npp.simulator.v", vers, ".results.random.csv"))
-# 
-# ### Exploratory of what's in the random street tree results iterations
-# npp.street <- as.data.table(read.csv("processed/results/street/streettrees.npp.simulator.v6.results.random.csv"))
-# sum.na <- function(x){sum(x, na.rm=T)}
-# street.tot <- apply(npp.street[, 8:1007], MARGIN=2, FUN=sum.na)
-# hist(street.tot/2000)
-# median(street.tot/2000) ## 9.9 ktC for whole-map sum (missing some values due to more things not being simmed; was in v5 11.1k tC across all map
-# nonfor.tot <- apply(npp.street[aoi>800 & lulc!=1 & biom<20000, 8:1007], MARGIN=2, FUN=sum.na)
-# summary(nonfor.tot/2000); hist(nonfor.tot/2000) ## about 7.5 ktC successfully simulated for the nonforest/nonbig pixels
-# for.tot <- apply(npp.street[aoi>800 & lulc==1 | aoi>800 & biom>=20000, 8:1007], MARGIN=2, FUN=sum.na)
-# summary(for.tot/2000)### about 2.3 simulated in forest/large-biomass pixels
-# 
-# ## how many sims do we have in the different pixel classes?
-# dim(npp.street[lulc!=1 & aoi>800,]) ## 125k
-# dim(npp.street[lulc==1 & aoi>800,]) ## 11.3k
-# na.detect <- function(x){sum(is.na(x))}
-# nonfor.sims <- apply(npp.street[aoi>800 & lulc!=1, 8:1007], MARGIN=1, FUN=na.detect)
-# table(nonfor.sims) ### 95352 nonforest pix have 1000 successful retrievals, 29759 are not retrieved
-# for.sims <- apply(npp.street[aoi>800 & lulc==1, 8:1007], MARGIN=1, FUN=na.detect)
-# table(for.sims) ## 11248 forest pixels with no sim values, 22 that have em (???)
-# bigbiom.sims <- apply(npp.street[lulc!=1 & biom>=20000, 8:1007], MARGIN=2, FUN=na.detect)
-# dim(npp.street[lulc!=1 & biom>=20000 & aoi>800, 8:1007]) ### 2.7k of these
-# View(npp.street[lulc!=1 & biom>=20000 & aoi>800, 1:20]) ## OK so there seem to be large-biomass simulations aplenty
-# View(npp.street[lulc==1 & aoi>800, 1:20])
-# dim(npp.street[lulc==1 & aoi>800, 1:20]) ## 11.3k forest pixels a lot of which seem to have simulation runs recorded
-# 
-# quantile(nonfor.tot/2000, probs=c(0.05, 0.5, 0.95)) ## ##v6 4.4, 7.5 10.8k tC for simulated street trees, old v5 was 4.8-12.2k tC for simulated street trees
-# 
-# 
-# 
-# ### export the tifs
-# npp.street <- fread("processed/results/street/streettrees.npp.simulator.v6.results.random.csv")
-# median.na <- function(x){median(x, na.rm=T)}
-# med.street <- apply(as.matrix(npp.street[,8:1007]), MARGIN=1, FUN=median.na)
-# r <- biom
-# r <- setValues(r, med.street)
-# writeRaster(r, "processed/results/street/bos.street.V6.npp.med.tif", format="GTiff", overwrite=T)
-# 
-# for(j in 1:4){
-#   r <- biom
-#   r <- setValues(r, map[[(j+5)]])
-#   writeRaster(r, paste("processed/boston/", names(map)[5+j], ".v1.tif", sep=""),
-#               format="GTiff", overwrite=T)
-# }
-# 
-# 
-# ## brief exploratory
-# ### do simulations track cell biomass well enough?
-# vers=4
-# container <- read.csv(paste("processed/streettrees.npp.simulator.v", vers, "3.results.random.csv", sep=""))
-# container <- as.data.table(container)
-#
-# ### how well did the median biomass simulation per cell get to measured biomass?
-# summary(container$bos.biom30m)
-# summary(container$biom.kg)
-# summary(container$med.biom.all)
-# plot(container$biom.kg, container$med.biom.all) ## mostly in a tight range -- no successful sims over ~35k
-# abline(a=0, b=1) ## the simulated biomass is very near the cell biomass
-# container[,biom.dev:=med.biom.all-biom.kg]
-# plot(container$biom.kg, container$biom.dev) ## most within +/- 50kg till right at 30k, expands to 100kg
-#
-# ### how prevalent are simulation failures, where are they
-# sum(container$proc.status==0, na.rm=T)/dim(container[proc.status%in%c(0,1),])[1] # 3.46% failure to simulate
-# sum(container$biom.kg>30000, na.rm=T)/dim(container[is.finite(bos.biom30m),])[1] # 1.35% are >30k -- so we are getting some but not all of the largest 1%
-# container[biom.kg>25000 & proc.status==0, length(biom.kg)]/container[biom.kg>25000, length(biom.kg)] ## 66% of pixels >25k failed
-# container[biom.kg>25000 & proc.status==0, length(biom.kg)]/container[proc.status==0, length(biom.kg)] ## 73% of failures are over 25k
-# # map[proc.status==0, median(bos.can30m, na.rm=T)] ## median 99.8% canopy
-# # hist(map[proc.status==0, (bos.can30m)]) ## most heavily covered except for a small number that must be low biomass
-# # hist(map[proc.status==0, bos.biom30m]) ### bimodal, very low biomass or very high biomass
-# ### might need to just toss anything above ~20k kg -- call it "much more like a forest than a piece of city"
-#
-# ### how is productivity organized in space
-# plot(container$biom.kg, container$med.ann.npp.all) # tent shape, nearly linear increase up to ~25k then steep decline (sampling large old trees?)
-# abline(v=22000) ## peaks right at 22k then steep decline
-# # plot(map$bos.can30m, map$med.ann.npp.all) ## everything increases but with inreasing variance up to full canopy where it can be all over
-# # hist(map[bos.biom30m>10, med.ann.npp.all])
-# # hist(map[bos.biom30m>10 & bos.biom30m<22000, med.ann.npp.all]) ## how different are our results if we chuck the weird ass high biomass pixels?
-#
-# ## NPP rate, city wide
-# container[aoi>800 & bos.biom30m>10, npp.MgC.ha:=(((med.ann.npp.all/1000)*(1/2))/aoi)*1E4]
-# container[aoi>800, range(npp.MgC.ha, na.rm=T)] ## 0.04-5.2 MgC/ha/yr
-# hist(container[aoi>800, npp.MgC.ha])
-# container[bos.biom30m>22000, length(bos.biom30m)]/container[bos.biom30m>10, length(bos.biom30m)] ##5.8% of pix are above 22k
-# container[is.finite(med.ann.npp.all) & aoi>800 & bos.biom30m>22000, length(med.ann.npp.all)]/container[aoi>800 & bos.biom30m>22000, length(med.ann.npp.all)] ## we got a value for 66% of the large pixels
-# container[aoi>800, sum(med.ann.npp.all/(2*1000), na.rm=T)] #13161 MgC/yr
-# container[aoi>800, sum(med.ann.npp.all/(2*1000), na.rm=T)]/(container[, sum(aoi, na.rm=T)]/1E4) ### 1.06 MgC/ha/yr
-# ### how many large pixels did not simulate?
-# container[aoi>800 & bos.biom30m>20000 & proc.status==0, length(bos.biom30m)] #2.8k
-# container[aoi>800 & bos.biom30m>20000 & proc.status==0, length(bos.biom30m)]/container[aoi>800 & is.finite(bos.biom30m), length(bos.biom30m)]
-#
-# ### excluding large pixels
-# container[aoi>800 & bos.biom30m<22000, sum(med.ann.npp.all/(2*1000), na.rm=T)] #11789 MgC/yr
-# container[aoi>800 & bos.biom30m<22000, sum(med.ann.npp.all/(2*1000), na.rm=T)]/(container[, sum(aoi, na.rm=T)]/1E4) ### 0.95 MgC/ha/yr
-#
-# ## average small and large pixel productivity
-# container[aoi>800 & bos.biom30m<22000, median(npp.MgC.ha, na.rm=T)] ## 0.94 MgC/ha/yr for small pixels
-# container[aoi>800 & bos.biom30m>22000, median(npp.MgC.ha, na.rm=T)] ## ### 3.65 MgC/ha/yr
-# ## contrast to Andy-forest-based estimate, #13.8k tC, 1.1 tC/ha/yr mean estimate (range was ~7k-22k)
+# ### fix NA values
+# for(col in paste0("AG.npp.iter.", 1:1000)) set(AG.npp.omni, i=which(AG.npp.omni[,17:1016][[col]]==99999), j=col, value=NA)
+# for(col in paste0("AGR.npp.iter.", 1:1000)) set(AGR.npp.omni, i=which(AGR.npp.omni[,17:1016][[col]]==99999), j=col, value=NA)
+# for(col in paste0("fol.npp.iter.", 1:1000)) set(fol.npp.omni, i=which(fol.npp.omni[,17:1016][[col]]==99999), j=col, value=NA)
+# for(col in paste0("root.npp.iter.", 1:1000)) set(root.npp.omni, i=which(root.npp.omni[,17:1016][[col]]==99999), j=col, value=NA)
+# for(col in paste0("total.npp.iter.", 1:1000)) set(tot.npp.omni, i=which(tot.npp.omni[,17:1016][[col]]==99999), j=col, value=NA)
+# # summary(apply(tot.npp.omni[,17:1016], MARGIN=2, FUN=sum, na.rm=T)/2000)/1000 ## gives odd values, not clear why, but the above should be clear now
+
+
+##
+### merge npp simulation results in with map pixel data
+library(data.table)
+library(raster)
+### load up 30m data and groom up
+setwd("/projectnb/buultra/atrlica/FragEVI")
+biom <- raster("processed/boston/bos.biom30m.tif")
+aoi <- raster("processed/boston/bos.aoi30m.tif")
+biom <- crop(biom, aoi)
+can <- raster("processed/boston/bos.can.redux30m.tif")
+isa <- raster("processed/boston/bos.isa30m.tif")
+lulc <- raster("processed/boston/bos.lulc30m.lumped.tif")
+biom <- crop(biom, aoi)
+can <- crop(can, aoi)
+isa <- crop(isa, aoi)
+lulc <- crop(lulc, aoi)
+biom.dat <- as.data.table(as.data.frame(biom))
+biom.dat[,aoi:=getValues(aoi)]
+biom.dat[,can:=getValues(can)]
+biom.dat[,isa:=getValues(isa)]
+biom.dat[,lulc:=getValues(lulc)]
+biom.dat[,pix.ID:=seq(1:dim(biom.dat)[1])]
+names(biom.dat)[1] <- c("biom")
+dim(biom.dat[biom>10 & !is.na(biom) & aoi>800,]) ## 106659 valid biomass pixels to do
+dim(AG.npp.omni) ### we have 107866 total biomass pixels simulated
+dim(biom.dat[!is.na(biom) & aoi>800,]) ## 135705 pixels that have any biomass data at all
+
+## merge in map data
+AG.npp.omni.map <- merge(biom.dat, AG.npp.omni, by="pix.ID", all.x=T)
+summary(AG.npp.omni.map[!is.na(biom), biom-pix.biom30m]) ## spot on, they aligned
+dim(AG.npp.omni.map) ## 354068 pix, 1022 fields (1000 iterations +22 map data&sim diagnostics)
+AGR.npp.omni.map <- merge(biom.dat, AGR.npp.omni, by="pix.ID", all.x=T)
+fol.npp.omni.map <- merge(biom.dat, fol.npp.omni, by="pix.ID", all.x=T)
+root.npp.omni.map <- merge(biom.dat, root.npp.omni, by="pix.ID", all.x=T)
+tot.npp.omni.map <- merge(biom.dat, tot.npp.omni, by="pix.ID", all.x=T)
+
+## write the full iteration files to disk
+fwrite(AG.npp.omni.map, file = paste0("/projectnb/buultra/atrlica/BosBiog/processed/results/street/streettrees.AG.npp.simulator.v", vers, ".results.random.csv"))
+fwrite(AGR.npp.omni.map, file = paste0("/projectnb/buultra/atrlica/BosBiog/processed/results/street/streettrees.AGR.npp.simulator.v", vers, ".results.random.csv"))
+fwrite(fol.npp.omni.map, file = paste0("/projectnb/buultra/atrlica/BosBiog/processed/results/street/streettrees.F.npp.simulator.v", vers, ".results.random.csv"))
+fwrite(root.npp.omni.map, file = paste0("/projectnb/buultra/atrlica/BosBiog/processed/results/street/streettrees.R.npp.simulator.v", vers, ".results.random.csv"))
+fwrite(tot.npp.omni.map, file = paste0("/projectnb/buultra/atrlica/BosBiog/processed/results/street/streettrees.TOTAL.npp.simulator.v", vers, ".results.random.csv"))
+
+##
+### make maps of the median pixel retrievals
+## AG NPP
+# map <- merge(x=biom.dat, y=AG.npp.omni, by="pix.ID", all.x=T, all.y=T)
+# plot(map[aoi>800, biom], map[aoi>800, AG.npp.pix.med])
+# summary(map[aoi>800 & biom<20000, AG.npp.pix.med])
+# View(map[aoi>800 & biom>10000 & biom<20000 & AG.npp.pix.med<200 & num.sims.sucessful>=40,]) ## weird anomalies for handful of high biomass cells, NPP is badly constrained
+rr <- biom
+rr <- setValues(rr, AG.npp.omni.map[,AG.npp.pix.med])
+writeRaster(rr, paste0("/projectnb/buultra/atrlica/BosBiog/processed/results/street/bos.street.V", vers, ".AG.npp.med.tif"), format="GTiff", overwrite=T)
+plot(rr)
+
+## AGR NPP
+# map <- merge(x=biom.dat, y=AGR.npp.omni, by="pix.ID", all.x=T, all.y=T)
+# plot(map[aoi>800, biom], map[aoi>800, AGR.npp.pix.med])
+# summary(map[aoi>800 & biom<20000, AGR.npp.pix.med])
+# View(map[aoi>800 & biom>10000 & biom<20000 & AGR.npp.pix.med<400 & num.sims.sucessful>=40,]) ## weird anomalies for handful of high biomass cells, NPP is badly constrained
+rr <- biom
+rr <- setValues(rr, AGR.npp.omni.map[,AGR.npp.pix.med])
+writeRaster(rr, paste0("/projectnb/buultra/atrlica/BosBiog/processed/results/street/bos.street.V", vers, ".AGR.npp.med.tif"), format="GTiff", overwrite=T)
+plot(rr)
+
+## Fol NPP
+# map <- merge(x=biom.dat, y=fol.npp.omni, by="pix.ID", all.x=T, all.y=T)
+# plot(map[aoi>800, biom], map[aoi>800, fol.npp.pix.med])
+# summary(map[aoi>800 & biom<20000, fol.npp.pix.med])
+# View(map[aoi>800 & biom>10000 & biom<20000 & fol.npp.pix.med<400 & num.sims.sucessful>=40,]) ## weird anomalies for handful of high biomass cells, NPP is badly constrained
+rr <- biom
+rr <- setValues(rr, fol.npp.omni.map[,fol.npp.pix.med])
+writeRaster(rr, paste0("/projectnb/buultra/atrlica/BosBiog/processed/results/street/bos.street.V", vers, ".F.npp.med.tif"), format="GTiff", overwrite=T)
+plot(rr)
+
+## root NPP
+# map <- merge(x=biom.dat, y=root.npp.omni, by="pix.ID", all.x=T, all.y=T)
+# plot(map[aoi>800, biom], map[aoi>800, root.npp.pix.med])
+# summary(map[aoi>800 & biom<20000, root.npp.pix.med])
+# View(map[aoi>800 & biom>10000 & biom<20000 & root.npp.pix.med<100 & num.sims.sucessful>=40,]) ## weird anomalies for handful of high biomass cells, NPP is badly constrained
+rr <- biom
+rr <- setValues(rr, root.npp.omni.map[,root.npp.pix.med])
+writeRaster(rr, paste0("/projectnb/buultra/atrlica/BosBiog/processed/results/street/bos.street.V", vers, ".R.npp.med.tif"), format="GTiff", overwrite=T)
+plot(rr)
+
+## TOTAL NPP
+# map <- merge(x=biom.dat, y=tot.npp.omni, by="pix.ID", all.x=T, all.y=T)
+# plot(map[aoi>800, biom], map[aoi>800, tot.npp.pix.med])
+# summary(map[aoi>800 & biom<20000, tot.npp.pix.med]) ## about double just AGR
+# View(map[aoi>800 & biom>10000 & biom<20000 & tot.npp.pix.med<500 & num.sims.sucessful>=40,]) ## weird anomalies for handful of high biomass cells, NPP is badly constrained
+rr <- biom
+rr <- setValues(rr, tot.npp.omni.map[,tot.npp.pix.med])
+writeRaster(rr, paste0("/projectnb/buultra/atrlica/BosBiog/processed/results/street/bos.street.V", vers, ".TOTAL.npp.med.tif"), format="GTiff", overwrite=T)
+plot(rr)
+
+
+### Exploratory of what's in the random street tree results iterations
+library(data.table)
+setwd("/projectnb/buultra/atrlica/BosBiog/")
+npp.street <- fread("processed/results/street/streettrees.TOTAL.npp.simulator.v7.results.random.csv")
+sum.na <- function(x){sum(x, na.rm=T)}
+street.tot <- apply(npp.street[aoi>800 & num.sims.sucessful>=40 & !is.na(biom), 22:1021], MARGIN=2, FUN=sum.na)
+hist(street.tot/2000)
+median(street.tot/2000) ## 18.8 ktC, contrast 9.9 ktC for AG-only (V6) whole-map sum (missing some values due to more things not being simmed; was in v5 11.1k tC across all map
+nonfor.tot <- apply(npp.street[aoi>800 & lulc!=1 & biom<20000 & num.sims.sucessful>=40 & !is.na(biom), 22:1021], MARGIN=2, FUN=sum.na)
+summary(nonfor.tot/2000); hist(nonfor.tot/2000) ## median 15.3 ktC tota, contrast about 7.5 ktC AG-only in successfully simulated for the nonforest/nonbig pixels
+for.tot <- apply(npp.street[aoi>800 & lulc==1  & num.sims.sucessful>=40 & !is.na(biom) | aoi>800 & biom>=20000 & num.sims.sucessful>=40 & !is.na(biom), 22:1021], MARGIN=2, FUN=sum.na)
+summary(for.tot/2000)### median 3.5 ktC in forest+large biomass pix with good simulation, contrast about 2.3 simulated AG-only in forest/large-biomass pixels
+
+## how many sims do we have in the different pixel classes?
+dim(npp.street[lulc!=1 & aoi>800,]) ## 125k total nonforest pixels
+dim(npp.street[lulc==1 & aoi>800,]) ## 11.3k total forest pixels
+npp.street[lulc!=1 & aoi>800 & !is.na(biom) & num.sims.sucessful>=40 & biom<20000, length(tot.npp.pix.med)] ### 89093 nonforest+no big biomass successfully figured
+npp.street[lulc!=1 & aoi>800 & !is.na(biom) & biom>=20000, length(pix.ID)] #2729 large biomass non-forest pixels that will be subbed for andy results
+npp.street[lulc==1 & aoi>800 & !is.na(biom), length(pix.ID)] ## and 11270 forest pix that will be subbed for andy results
+quantile(nonfor.tot/2000, probs=c(0.05, 0.5, 0.95)) ## V7: 14.7, 15.3, 15.9 ktC TOTAL NPP, contrast v6 4.4, 7.5 10.8k tC for simulated street trees, old v5 was 4.8-12.2k tC for simulated street trees
+
+## NPP rate, city wide
+npp.street[aoi>800 & biom>10 & !is.na(biom) & num.sims.sucessful>=40, npp.MgC.ha:=((tot.npp.pix.med/2000)/aoi)*1E4]
+npp.street[aoi>800, range(npp.MgC.ha, na.rm=T)] ## 0.04-9.25 MgC/ha/yr ground basis (contrast, V6 was 0.04-5.2 MgC/ha/yr)
+hist(npp.street[aoi>800, npp.MgC.ha])
+npp.street[aoi>800 & !is.na(biom) & num.sims.sucessful>=40, sum(tot.npp.pix.med/(2000), na.rm=T)] ## 18734 MgC/yr (Contrast V6 13161 MgC/yr)
+npp.street[aoi>800 & !is.na(biom) & num.sims.sucessful>=40, sum(tot.npp.pix.med/(2000), na.rm=T)]/(npp.street[, sum(aoi, na.rm=T)]/1E4) ### 1.50 MgC/ha/yr, excluding non-simmed pixels (contrast V6 1.06 MgC/ha/yr)
+npp.street[aoi>800 & biom>=20000 & proc.status==0, length(biom)] ## failed to sim 6615 large pixels (Contrast V6 2.8k)
+npp.street[aoi>800 & biom>=20000 & num.sims.sucessful<40, length(biom)] ## 6581 large pixels with too few sims (some sim numbers must be NA)
+npp.street[aoi>800 & biom>20000 & proc.status==0, length(biom)]/npp.street[aoi>800 & is.finite(biom), length(biom)] ## 4.9% of pixels with biomass are failed large biomass pixels
 #####
 
