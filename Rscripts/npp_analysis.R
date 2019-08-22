@@ -286,7 +286,7 @@ street.res[biom<10 & aoi>800, 22:1021:=0] ### set low biomass to 0 growth
 street.res[can<0.001 & aoi>800, 22:1021:=0] ## set anything with <1 pix of canopy to 0
 street.res[aoi>800 & is.na(biom), 22:1021:=0] ## set no record of biomass to 0
 bad.sim <- street.res[num.sims.sucessful<40, pix.ID] ## 10605 these are all pixels that failed complete-enough simulation
-names(street.res)[c(2,4,5,6)] <- c("bos.biom30m", "bos.can30m", "bos.isa30m", "bos.lulc30m.lumped") ## to match andy headings
+# names(street.res)[c(2,4,5,6)] <- c("bos.biom30m", "bos.can30m", "bos.isa30m", "bos.lulc30m.lumped") ## to match andy headings
 # summary(street.res[aoi>800 & pix.ID %in% bad.sim, bos.biom30m]); hist(street.res[aoi>800 & pix.ID %in% bad.sim, bos.biom30m]) ## the bad pixels apparently are mostly in the >20000 range
 # summary(street.res[aoi>800 & pix.ID %in% bad.sim, bos.can30m]); hist(street.res[aoi>800 & pix.ID %in% bad.sim, bos.can30m]) ## most are fully canopied
 # table(street.res[aoi>800 & pix.ID %in% bad.sim, bos.lulc30m.lumped]) ## most are forest or HD res
@@ -303,14 +303,19 @@ names(pick)[2:1001] <- paste0("npp.iter.", 1:1000, ".hybrid"); dim(pick) ### 170
 
 ## finalize grooming the street pixels 
 dim(street.res) ## 354068
-street.res <- street.res[bos.lulc30m.lumped!=1,]; dim(street.res) ## 126437
-street.res <- street.res[bos.biom30m<20000,]; dim(street.res) ## 122607
-street.res <- street.res[!(pix.ID%in%bad.sim),]; dim(street.res) ### 119036
+dim(andy.res) ## 354068
+street.res <- street.res[lulc!=1,]; dim(street.res) ## 126437
+street.res <- street.res[biom<20000,]; dim(street.res) ## 122607
 street.res <- street.res[!(pix.ID%in%gimme),]; dim(street.res) ### 119036
-street.res <- street.res[,c(1,22:1021)]
-names(street.res)[2:1001] <- paste0("npp.iter.", 1:1000, ".hybrid")
-hybrid <- rbind(pick, street.res); dim(hybrid) ### 136809 pix; now need to merge these back into the complete map
+street.res.m <- street.res[,c(1,22:1021)]
+names(street.res.m)[2:1001] <- paste0("npp.iter.", 1:1000, ".hybrid")
+hybrid <- rbind(pick, street.res.m); dim(hybrid) ### 136809 pix; now need to merge these back into the diagnostics and map data
 
+## merge back in the diagnostic data so we can filter this properly
+diag.m <- merge(andy.res[,c(8,4,5,9,10), ], street.res[,c(1, 8:21)], by="pix.ID", all.x=T) ## andy pix.ID, ed.can, ed.biom, int.can, int.biom; street pix.ID, diagnostics x16
+hybrid.diag <- merge(diag.m, hybrid, by="pix.ID") ## 136809 x 1019 col (1000 iter + 19 supplemental)
+
+### no put the map data back in there
 library(raster)
 setwd("/projectnb/buultra/atrlica/FragEVI/")
 aoi <- raster("processed/boston/bos.aoi30m.tif")
@@ -328,14 +333,14 @@ biom.dat <- as.data.table(cbind(as.data.frame(aoi),
                                 as.data.frame(isa),
                                 as.data.frame(lulc)))
 biom.dat[, pix.ID:=seq(1:dim(biom.dat)[1])]
-biom.dat <- merge(biom.dat, hybrid, by="pix.ID", all.x=T) # here's our map
-biom.dat <- biom.dat[order(pix.ID),]; dim(biom.dat) ## 354068 pixels x 1006 cols
+biom.dat <- merge(biom.dat, hybrid.diag, by="pix.ID", all.x=T) # here's our map, 
+biom.dat <- biom.dat[order(pix.ID),]; dim(biom.dat) ## 354068 x 1024 (24 col of diagnostic & map data)
 setwd("/projectnb/buultra/atrlica/BosBiog/")
-fwrite(biom.dat, "processed/results/hybrid.results.V7.csv") ## V8 includes andy V7 and street V7, TOTAL NPP (AG+root+fol), all with biomass>0 canopy map incorporated
+fwrite(biom.dat, "processed/results/hybrid.TOTAL.results.V8.csv") ## V8 includes andy V7 and street V7, TOTAL NPP (AG+root+fol), all with biomass>0 canopy map incorporated
 
 ### write a tiff of the median values
 median.na <- function(x){median(x, na.rm=T)}
-biom.dat[, pix.med:=apply(biom.dat[,7:1006], FUN = median.na, MARGIN=1)]
+biom.dat[, pix.med:=apply(biom.dat[,25:1024], FUN = median.na, MARGIN=1)]
 biom.dat[bos.aoi30m>800 & bos.biom30m<10, pix.med:=0] ## crush the vanishing biomass
 biom.dat[bos.aoi30m>800 & bos.can.redux30m<0.001, pix.med:=0] ## crush the vanishing canopy
 hist(biom.dat[bos.aoi30m>800, pix.med]); summary(biom.dat[bos.aoi30m>800, pix.med]) ## 25 kg 1Q, median 202kg, 3Q 588kg, max 2296
@@ -347,18 +352,57 @@ writeRaster(rr, filename="processed/results/hybrid.V8.TOTAL.npp.median.tif", for
 plot(rr) ## well if that ain't a pretty picture
 #####
 
-###
-### analysis of model results
+##
+### URBAN HYBRID for just the AG.npp component so we can compare to Ch2 and make sure we didn't completely fuck things up somewhere
 #####
-library(raster)
 library(data.table)
+library(raster)
+setwd("/projectnb/buultra/atrlica/BosBiog")
+street.res <- fread("processed/results/street/streettrees.AG.npp.simulator.v7.results.random.csv")
+street.res[aoi>800 & biom<10 & num.sims.sucessful>=40,] ## we did not successfuly simulate any pixel with less than 10kg biomass
+street.res[biom<10 & aoi>800, 22:1021:=0] ### set low biomass to 0 growth
+street.res[can<0.001 & aoi>800, 22:1021:=0] ## set anything with <1 pix of canopy to 0
+street.res[aoi>800 & is.na(biom), 22:1021:=0] ## set no record of biomass to 0
+bad.sim <- street.res[num.sims.sucessful<40, pix.ID] ## 10605 these are all pixels that failed complete-enough simulation
+# names(street.res)[c(2,4,5,6)] <- c("bos.biom30m", "bos.can30m", "bos.isa30m", "bos.lulc30m.lumped") ## to match andy headings
+# summary(street.res[aoi>800 & pix.ID %in% bad.sim, bos.biom30m]); hist(street.res[aoi>800 & pix.ID %in% bad.sim, bos.biom30m]) ## the bad pixels apparently are mostly in the >20000 range
+# summary(street.res[aoi>800 & pix.ID %in% bad.sim, bos.can30m]); hist(street.res[aoi>800 & pix.ID %in% bad.sim, bos.can30m]) ## most are fully canopied
+# table(street.res[aoi>800 & pix.ID %in% bad.sim, bos.lulc30m.lumped]) ## most are forest or HD res
+
+### select andy results that are either forest or high biomass or are failed sims
+andy.res <- fread("processed/results/andy.AGnpp.results.V7.csv")
+forest <- andy.res[lulc==1, pix.ID]
+big <- andy.res[biom>=20000, pix.ID]
+gimme <- c(forest, big, bad.sim)
+gimme <- unique(gimme); length(gimme) ## 17773 pix we are going to swap out with andy results
+pick <- andy.res[pix.ID%in%gimme,] 
+pick <- pick[,c(8,15:1014)] ## pix.ID and then results
+names(pick)[2:1001] <- paste0("npp.iter.", 1:1000, ".hybrid"); dim(pick) ### 17052 pix
+
+## finalize grooming the street pixels 
+dim(street.res) ## 354068
+dim(andy.res) ## 354068
+street.res <- street.res[lulc!=1,]; dim(street.res) ## 126437
+street.res <- street.res[biom<20000,]; dim(street.res) ## 122607
+street.res <- street.res[!(pix.ID%in%gimme),]; dim(street.res) ### 119036
+street.res.m <- street.res[,c(1,22:1021)]
+names(street.res.m)[2:1001] <- paste0("npp.iter.", 1:1000, ".hybrid")
+hybrid <- rbind(pick, street.res.m); dim(hybrid) ### 136809 pix; now need to merge these back into the diagnostics and map data
+
+## merge back in the diagnostic data so we can filter this properly
+diag.m <- merge(andy.res[,c(8,4,5,9,10), ], street.res[,c(1, 8:21)], by="pix.ID", all.x=T) ## andy pix.ID, ed.can, ed.biom, int.can, int.biom; street pix.ID, diagnostics x16
+hybrid.diag <- merge(diag.m, hybrid, by="pix.ID") ## 136809 x 1019 col (1000 iter + 19 supplemental)
+
+### now put the map data back in there
+library(raster)
+setwd("/projectnb/buultra/atrlica/FragEVI/")
 aoi <- raster("processed/boston/bos.aoi30m.tif")
 biom <- raster("processed/boston/bos.biom30m.tif")
 can <- raster("processed/boston/bos.can.redux30m.tif")
 isa <- raster("processed/boston/bos.isa30m.tif")
 lulc <- raster("processed/boston/bos.lulc30m.lumped.tif")
 biom <- crop(biom, aoi)
-can <-  crop(can, aoi)
+can <- crop(can, aoi)
 isa <- crop(isa, aoi)
 lulc <- crop(lulc, aoi)
 biom.dat <- as.data.table(cbind(as.data.frame(aoi), 
@@ -367,67 +411,141 @@ biom.dat <- as.data.table(cbind(as.data.frame(aoi),
                                 as.data.frame(isa),
                                 as.data.frame(lulc)))
 biom.dat[, pix.ID:=seq(1:dim(biom.dat)[1])]
-names(biom.dat)[1:5] <- c("aoi", "biom", "can", "isa", "lulc")
+biom.dat <- merge(biom.dat, hybrid.diag, by="pix.ID", all.x=T) # here's our map, 
+biom.dat <- biom.dat[order(pix.ID),]; dim(biom.dat) ## 354068 x 1024 (24 col of diagnostic & map data)
+setwd("/projectnb/buultra/atrlica/BosBiog/")
+fwrite(biom.dat, "processed/results/hybrid.AG.results.V8.csv") ## V8 includes andy V7 and street V7, AG NPP, all with biomass>0 canopy map incorporated
 
-## put pixel medians into biom.dat
-biom.dat[,fia.ground.med:=getValues(raster("processed/results/fia/npp.FIA.empirV6.ground.median.tif"))]
-biom.dat[,fia.forest.med:=getValues(raster("processed/results/fia/npp.FIA.empirV6.forest.median.tif"))]
-biom.dat[,hybrid.med:=getValues(raster("processed/results/hybrid.V7.median.tif"))]
-biom.dat[,fia.ground.med.MgC.ha:=((fia.ground.med/2000)/aoi)*1E4]
-biom.dat[,fia.forest.med.MgC.ha:=((fia.forest.med/2000)/aoi)*1E4]
-biom.dat[,hybrid.med.MgC.ha:=((hybrid.med/2000)/aoi)*1E4]
-hist(biom.dat[aoi>800 & !is.na(biom),hybrid.med.MgC.ha]) ## much longer positive tail
-hist(biom.dat[aoi>800 & !is.na(biom),fia.forest.med.MgC.ha])
-biom.dat[,MgC.ha:=1E4*((biom/2000)/aoi)]
-plot(biom.dat[aoi>800 & biom>0, MgC.ha], biom.dat[aoi>800 & biom>0, hybrid.med.MgC.ha/MgC.ha])
+### write a tiff of the median values
+median.na <- function(x){median(x, na.rm=T)}
+biom.dat[, pix.med:=apply(biom.dat[,25:1024], FUN = median.na, MARGIN=1)]
+biom.dat[bos.aoi30m>800 & bos.biom30m<10, pix.med:=0] ## crush the vanishing biomass
+biom.dat[bos.aoi30m>800 & bos.can.redux30m<0.001, pix.med:=0] ## crush the vanishing canopy
+hist(biom.dat[bos.aoi30m>800, pix.med]); summary(biom.dat[bos.aoi30m>800, pix.med]) ## 25 kg 1Q, median 202kg, 3Q 588kg, max 2296
+# View(biom.dat[bos.aoi30m>800 & is.na(pix.med),]) ## these all appear to be missing isa or biom or can or lulc
+# biom.dat[bos.aoi30m>800 & !is.na(bos.biom30m) & !is.na(bos.can.redux30m) & !is.na(bos.isa30m) & !is.na(bos.lulc30m.lumped) & is.na(pix.med),] ## nope, we have a median pixel NPP for every pixel with valid data
+rr <- aoi
+rr <- setValues(rr, biom.dat[, pix.med])
+writeRaster(rr, filename="processed/results/hybrid.V8.AG.npp.median.tif", format="GTiff", overwrite=T)
+plot(rr) ## well if that ain't a pretty picture
+#####
 
 
-## compile a table of pixel median ranges
-l <- biom.dat[aoi>800 & !is.na(biom), round(quantile(hybrid.med.MgC.ha, probs=0.025, na.rm=T), 1), by=lulc]
-l <- l[order(lulc),]
-m <- biom.dat[aoi>800 & !is.na(biom), round(quantile(hybrid.med.MgC.ha, probs=0.5, na.rm=T), 1), by=lulc]
-m <- m[order(lulc),]
-h <- biom.dat[aoi>800 & !is.na(biom), round(quantile(hybrid.med.MgC.ha, probs=0.975, na.rm=T), 1), by=lulc]
-h <- h[order(lulc),]
+##
+### analysis of model results
+#####
+library(data.table)
+setwd("/projectnb/buultra/atrlica/BosBiog/")
+AG.dat <- fread("processed/results/hybrid.AG.results.V8.csv")
+TOT.dat <- fread("processed/results/hybrid.TOTAL.results.V8.csv")
 
-fin <- cbind(c("Forest", "Dev", "HDRes", "LDRes", "OVeg", "Water", "NA"),
-      paste0(m[,V1], " (", l[,V1], "-", h[,V1], ")"))
+## make sure to un-flag the non-simmed forest/big biomass pixels
+TOT.dat[bos.aoi30m>800 & bos.lulc30m.lumped==1 | bos.aoi30m>800 &  bos.biom30m>=20000, sum(is.na(num.sims.sucessful))] ## 13999 pix 
+hist(TOT.dat[bos.aoi30m>800 & bos.lulc30m.lumped==1 | bos.aoi30m>800 &  bos.biom30m>=20000, npp.iter.1.hybrid]) ## we have valid npp retrievals here, this is our andy subs
+## this is unnecessary -- we already dumped out the simmed pixels with less than 40 successes
+# TOT.dat[bos.lulc30m.lumped==1 & bos.aoi30m>800, num.sims.sucessful:=100] ## let's assume we have good sims for everything that didn't have to sim :-)
+# TOT.dat[bos.biom30m>=20000 & bos.aoi30m>800, num.sims.sucessful:=100] ## let's assume we have good sims for everything that didn't have to sim :-)
+# AG.dat[bos.lulc30m.lumped==1 & bos.aoi30m>800, num.sims.sucessful:=100] ## let's assume we have good sims for everything that didn't have to sim :-)
+# AG.dat[bos.biom30m>=20000 & bos.aoi30m>800, num.sims.sucessful:=100] ## let's assume we have good sims for everything that didn't have to sim :-)
 
-l <- biom.dat[aoi>800 & !is.na(biom), round(quantile(fia.forest.med.MgC.ha, probs=0.025, na.rm=T), 1), by=lulc]
-l <- l[order(lulc),]
-m <- biom.dat[aoi>800 & !is.na(biom), round(quantile(fia.forest.med.MgC.ha, probs=0.5, na.rm=T), 1), by=lulc]
-m <- m[order(lulc),]
-h <- biom.dat[aoi>800 & !is.na(biom), round(quantile(fia.forest.med.MgC.ha, probs=0.975, na.rm=T), 1), by=lulc]
-h <- h[order(lulc),]
+## make sure you've zeroed out stuff that shouldn't have NPP
+low.biom <- which(TOT.dat[["bos.biom30m"]]<10) ## 33248 pix are low biomass
+na.biom <- which(is.na(TOT.dat[["bos.biom30m"]])) ## 212780 are NA biomass (most probably outside of AOI)
+sum(na.biom%in%low.biom) ## non overlapping yaya
 
-fin <- cbind(fin,
-             paste0(m[,V1], " (", l[,V1], "-", h[,V1], ")"))
+for(col in names(TOT.dat[,25:1024])){
+  print(col)
+  set(TOT.dat[,25:1024], i=low.biom, j=col, value=0)
+  set(TOT.dat[,25:1024], i=na.biom, j=col, value=NA)
+} 
+View(TOT.dat[bos.aoi30m>800 & bos.biom30m<10,][low.biom])
+View(TOT.dat[bos.aoi30m>800 & is.na(bos.biom30m),][na.biom])
 
-fin <- rbind(fin, c("Total",
-                    paste0(biom.dat[aoi>800 & !is.na(biom), round(quantile(hybrid.med.MgC.ha, probs=0.5, na.rm=T), 1)],
-                           " (",
-                           biom.dat[aoi>800 & !is.na(biom), round(quantile(hybrid.med.MgC.ha, probs=0.025, na.rm=T), 1)],
-                           "-",
-                           biom.dat[aoi>800 & !is.na(biom), round(quantile(hybrid.med.MgC.ha, probs=0.975, na.rm=T), 1)],
-                           ")"),
-                    paste0(biom.dat[aoi>800 & !is.na(biom), round(quantile(fia.forest.med.MgC.ha, probs=0.5, na.rm=T), 1)],
-                           " (",
-                           biom.dat[aoi>800 & !is.na(biom), round(quantile(fia.forest.med.MgC.ha, probs=0.025, na.rm=T), 1)],
-                           "-",
-                           biom.dat[aoi>800 & !is.na(biom), round(quantile(fia.forest.med.MgC.ha, probs=0.975, na.rm=T), 1)],
-                           ")"))
-             
-)
-write.csv(fin, "processed/results/pix.med.lulc.spread.csv")
-fin
+low.biom <- which(AG.dat[["bos.biom30m"]]<10) ## 33248 pix are low biomass
+na.biom <- which(is.na(AG.dat[["bos.biom30m"]])) ## 212780 are NA biomass (most probably outside of AOI)
+sum(na.biom%in%low.biom) ## non overlapping yaya
+for(col in names(AG.dat[,25:1024])){
+  print(col)
+  set(AG.dat[,25:1024], i=low.biom, j=col, value=0)
+  set(AG.dat[,25:1024], i=na.biom, j=col, value=NA)
+} 
+View(AG.dat[bos.aoi30m>800 & bos.biom30m<10,][low.biom])
+View(AG.dat[bos.aoi30m>800 & is.na(bos.biom30m),][na.biom])
+
+sum(AG.dat[bos.aoi30m>800 & bos.biom30m<10, 25:1024], na.rm=T)
+sum(AG.dat[bos.aoi30m>800 & is.na(bos.biom30m), 25:1024], na.rm=T)
+## this process takes a fuggin hour. rewrite
+fwrite(TOT.dat, file = "processed/results/hybrid.TOTAL.results.V8.csv")
+fwrite(AG.dat, file = "processed/results/hybrid.AG.results.V8.csv")
+
+## distribution of pixel medians
+median.na <- function(x){median(x, na.rm=T)}
+sum.na <- function(x){sum(x, na.rm=T)}
+TOT.dat[bos.aoi30m>800 & !is.na(bos.biom30m), tot.med:=apply(TOT.dat[bos.aoi30m>800 & !is.na(bos.biom30m), 25:1024], MARGIN = 1, FUN=median.na )]
+hist(TOT.dat[, tot.med]) ## heavily skewed right, up to 2000 kg
+TOT.sum <- TOT.dat[bos.aoi30m>800 & !is.na(bos.biom30m), apply(TOT.dat[bos.aoi30m>800 & !is.na(bos.biom30m), 25:1024], MARGIN=2, FUN=sum.na)]
+hist(TOT.sum/2000/1000); quantile(TOT.sum/2000/1000, probs=c(0.025, 0.5, 0.975)) ## 25.7 (19.3-38.4) kMgC/yr
+## oh please oh please oh please...
+AG.dat[bos.aoi30m>800 & !is.na(bos.biom30m), AG.med:=apply(AG.dat[bos.aoi30m>800 & !is.na(bos.biom30m), 25:1024], MARGIN = 1, FUN=median.na )]
+hist(AG.dat[, AG.med]) ## heavily skewed right, top out at about 700
+AG.sum <- AG.dat[bos.aoi30m>800 & !is.na(bos.biom30m), apply(AG.dat[bos.aoi30m>800 & !is.na(bos.biom30m), 25:1024], MARGIN=2, FUN=sum.na)]
+hist(AG.sum/2000/1000); quantile(AG.sum/2000/1000, probs=c(0.025, 0.5, 0.975)) ## 10.8 (8.5-15.0) kMgC/yr
+# AG.sum <- AG.dat[bos.aoi30m>800 & !is.na(bos.biom30m) &bos.biom30m>=10, apply(AG.dat[bos.aoi30m>800 & !is.na(bos.biom30m) &bos.biom30m>=10, 25:1024], MARGIN=2, FUN=sum.na)]
+# hist(AG.sum/2000/1000); quantile(AG.sum/2000/1000, probs=c(0.025, 0.5, 0.975)) ## 10.8 (8.5-15.0) kMgC/yr ## filtering for <10kg no effect
+### manuscript Ch 2 has it 9.8 (5.7-15.2) kMgC/yr, so the tweaks to how we did allometrics tightened up the distribution but we are still in range
+
+
+TOT.dat[,tot.med.MgC.ha:=((tot.med/2000)/bos.aoi30m)*1E4]
+hist(TOT.dat[bos.aoi30m>800 & !is.na(bos.biom30m), tot.med.MgC.ha]) ## up to 12 MgC/ha/yr, much longer positive tail
+TOT.dat[,MgC.ha:=1E4*((bos.biom30m/2000)/bos.aoi30m)]
+plot(TOT.dat[bos.aoi30m>800 & bos.biom30m>0, MgC.ha], TOT.dat[bos.aoi30m>800 & bos.biom30m>0, tot.med.MgC.ha]) ## peaks about 150 MgC/ha and spills to a lower growth curve (presume this is forest interior)
+plot(TOT.dat[bos.aoi30m>800 & bos.biom30m>0, MgC.ha], TOT.dat[bos.aoi30m>800 & bos.biom30m>0, tot.med.MgC.ha/MgC.ha], ylim=c(0,0.2)) ## hyperbolic, somewhere around 0.05-0.1 for most of the curve
+
+### TOTAL NPP by LULC
+quantile(apply(TOT.dat[bos.aoi30m>800 & !is.na(bos.biom30m) & bos.lulc30m.lumped==1, 25:1024], MARGIN=2, FUN=sum.na)/2000/1000, probs=c(0.025, 0.5, 0.975))
+## Forest: 6.2 (2.7-15.0)
+quantile(apply(TOT.dat[bos.aoi30m>800 & !is.na(bos.biom30m) & bos.lulc30m.lumped==2, 25:1024], MARGIN=2, FUN=sum.na)/2000/1000, probs=c(0.025, 0.5, 0.975))
+## Dev: 3.9 (3.5-4.7)
+quantile(apply(TOT.dat[bos.aoi30m>800 & !is.na(bos.biom30m) & bos.lulc30m.lumped==3, 25:1024], MARGIN=2, FUN=sum.na)/2000/1000, probs=c(0.025, 0.5, 0.975))
+## HDRes: 12.2 (10.4-15.0)
+quantile(apply(TOT.dat[bos.aoi30m>800 & !is.na(bos.biom30m) & bos.lulc30m.lumped==4, 25:1024], MARGIN=2, FUN=sum.na)/2000/1000, probs=c(0.025, 0.5, 0.975))
+## LDRes: 0.9 (0.7-1.2)
+quantile(apply(TOT.dat[bos.aoi30m>800 & !is.na(bos.biom30m) & bos.lulc30m.lumped==5, 25:1024], MARGIN=2, FUN=sum.na)/2000/1000, probs=c(0.025, 0.5, 0.975))
+## OVeg: 2.3 (1.8-3.1)
+quantile(apply(TOT.dat[bos.aoi30m>800 & !is.na(bos.biom30m) & bos.lulc30m.lumped==6, 25:1024], MARGIN=2, FUN=sum.na)/2000/1000, probs=c(0.025, 0.5, 0.975))
+## Water: 0.1 (0.1-0.2)
+### big relative jumps in Forest (4x) compared to HDRes (2x) Oveg (3x)
+
+### TOTAL NPP by LULC
+quantile(apply(AG.dat[bos.aoi30m>800 & !is.na(bos.biom30m) & bos.lulc30m.lumped==1, 25:1024], MARGIN=2, FUN=sum.na)/2000/1000, probs=c(0.025, 0.5, 0.975))
+## Forest: 2.2 (1.0-5.0)
+quantile(apply(AG.dat[bos.aoi30m>800 & !is.na(bos.biom30m) & bos.lulc30m.lumped==2, 25:1024], MARGIN=2, FUN=sum.na)/2000/1000, probs=c(0.025, 0.5, 0.975))
+## Dev: 1.8 (1.6-2.0)
+quantile(apply(AG.dat[bos.aoi30m>800 & !is.na(bos.biom30m) & bos.lulc30m.lumped==3, 25:1024], MARGIN=2, FUN=sum.na)/2000/1000, probs=c(0.025, 0.5, 0.975))
+## HDRes: 5.3 (4.6-6.2)
+quantile(apply(AG.dat[bos.aoi30m>800 & !is.na(bos.biom30m) & bos.lulc30m.lumped==4, 25:1024], MARGIN=2, FUN=sum.na)/2000/1000, probs=c(0.025, 0.5, 0.975))
+## LDRes: 0.4 (0.3-0.5)
+quantile(apply(AG.dat[bos.aoi30m>800 & !is.na(bos.biom30m) & bos.lulc30m.lumped==5, 25:1024], MARGIN=2, FUN=sum.na)/2000/1000, probs=c(0.025, 0.5, 0.975))
+## OVeg: 1.0 (0.5-1.4)
+quantile(apply(AG.dat[bos.aoi30m>800 & !is.na(bos.biom30m) & bos.lulc30m.lumped==6, 25:1024], MARGIN=2, FUN=sum.na)/2000/1000, probs=c(0.025, 0.5, 0.975))
+## Water: 0.1 (0.1-0.1)
+### central median is close but the 95% range is a fair amount narrower than Ch2... allometrics and taxa matching different?
+
+
+
+
+
+
+
+
 
 ### compile the whole map sum distributions one model at a time (not enough memory to load up every shits at once)
 median.na <- function(x){median(x, na.rm=T)}
 sum.na <- function(x){sum(x, na.rm=T)}
-files <- c("processed/results/hybrid.results.V7.csv", "processed/results/fia/npp.FIA.empirV6.forest.csv", "processed/results/fia/npp.FIA.empirV6.ground.csv")
-nms <- c("hybrid", "fia.forest", "fia.ground")
+files <- c("processed/results/hybrid.TOTAL.results.V8.csv", "processed/results/hybrid.AG.results.V8.csv")
+nms <- c("total", "ag")
 burp <- data.frame(c("Forest", "Dev", "HDRes", "LDRes", "Oveg", "Water", "Total"))
-for(t in 1:3){ ## perform this routine for every map model
+for(t in 1:2){ ## perform this routine for every map model
   tmp <- fread(files[t])
   names(tmp)[grep(names(tmp), pattern="*lulc*")] <- "lulc"
   names(tmp)[grep(names(tmp), pattern="*aoi*")] <- "aoi"
@@ -460,6 +578,48 @@ burp <- as.data.frame(burp)
 names(burp) <- c("LULC", "Hybrid", "FIA.forest", "FIA.ground")
 write.csv(burp, paste0("processed/results/npp.model.sums.spread.csv"))
 read.csv(paste0("processed/results/npp.model.sums.spread.csv"))
+
+
+## compile a table of pixel median ranges
+l <- biom.dat[aoi>800 & !is.na(biom), round(quantile(hybrid.med.MgC.ha, probs=0.025, na.rm=T), 1), by=lulc]
+l <- l[order(lulc),]
+m <- biom.dat[aoi>800 & !is.na(biom), round(quantile(hybrid.med.MgC.ha, probs=0.5, na.rm=T), 1), by=lulc]
+m <- m[order(lulc),]
+h <- biom.dat[aoi>800 & !is.na(biom), round(quantile(hybrid.med.MgC.ha, probs=0.975, na.rm=T), 1), by=lulc]
+h <- h[order(lulc),]
+
+fin <- cbind(c("Forest", "Dev", "HDRes", "LDRes", "OVeg", "Water", "NA"),
+             paste0(m[,V1], " (", l[,V1], "-", h[,V1], ")"))
+
+l <- biom.dat[aoi>800 & !is.na(biom), round(quantile(fia.forest.med.MgC.ha, probs=0.025, na.rm=T), 1), by=lulc]
+l <- l[order(lulc),]
+m <- biom.dat[aoi>800 & !is.na(biom), round(quantile(fia.forest.med.MgC.ha, probs=0.5, na.rm=T), 1), by=lulc]
+m <- m[order(lulc),]
+h <- biom.dat[aoi>800 & !is.na(biom), round(quantile(fia.forest.med.MgC.ha, probs=0.975, na.rm=T), 1), by=lulc]
+h <- h[order(lulc),]
+
+fin <- cbind(fin,
+             paste0(m[,V1], " (", l[,V1], "-", h[,V1], ")"))
+
+fin <- rbind(fin, c("Total",
+                    paste0(biom.dat[aoi>800 & !is.na(biom), round(quantile(hybrid.med.MgC.ha, probs=0.5, na.rm=T), 1)],
+                           " (",
+                           biom.dat[aoi>800 & !is.na(biom), round(quantile(hybrid.med.MgC.ha, probs=0.025, na.rm=T), 1)],
+                           "-",
+                           biom.dat[aoi>800 & !is.na(biom), round(quantile(hybrid.med.MgC.ha, probs=0.975, na.rm=T), 1)],
+                           ")"),
+                    paste0(biom.dat[aoi>800 & !is.na(biom), round(quantile(fia.forest.med.MgC.ha, probs=0.5, na.rm=T), 1)],
+                           " (",
+                           biom.dat[aoi>800 & !is.na(biom), round(quantile(fia.forest.med.MgC.ha, probs=0.025, na.rm=T), 1)],
+                           "-",
+                           biom.dat[aoi>800 & !is.na(biom), round(quantile(fia.forest.med.MgC.ha, probs=0.975, na.rm=T), 1)],
+                           ")"))
+             
+)
+write.csv(fin, "processed/results/pix.med.lulc.spread.csv")
+fin
+
+
 
 ### Results for ANDY FOREST, error distributed
 #####
