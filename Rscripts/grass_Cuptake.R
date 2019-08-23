@@ -75,6 +75,9 @@ grass.dat[is.na(bos.aoi), grass.npp:=NA]
 grass.dat[bos.aoi>800, sum(grass.npp, na.rm=T)/1E6] ### comparable to the amount of woody biomass uptake
 hist(grass.dat[bos.aoi>800, grass.npp]); summary(grass.dat[bos.aoi>800, grass.npp]) ## most are low, no NA
 fwrite(grass.dat, "processed/results/grassNPP.results.V1.csv")
+0.9*1E4/1000 ## 0.9 kgC/m2/yr is 9 MgC/ha/yr (like a strong forest...)
+2000/2000/900*1E4 ### some of our forests are pulling 11 MgC/ha/yr
+
 
 ## a nice table of the bulk results
 sum.na <- function(x){sum(x, na.rm=T)}

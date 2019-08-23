@@ -440,9 +440,9 @@ AG.dat <- fread("processed/results/hybrid.AG.results.V8.csv")
 TOT.dat <- fread("processed/results/hybrid.TOTAL.results.V8.csv")
 
 ## make sure to un-flag the non-simmed forest/big biomass pixels
-TOT.dat[bos.aoi30m>800 & bos.lulc30m.lumped==1 | bos.aoi30m>800 &  bos.biom30m>=20000, sum(is.na(num.sims.sucessful))] ## 13999 pix 
-hist(TOT.dat[bos.aoi30m>800 & bos.lulc30m.lumped==1 | bos.aoi30m>800 &  bos.biom30m>=20000, npp.iter.1.hybrid]) ## we have valid npp retrievals here, this is our andy subs
 ## this is unnecessary -- we already dumped out the simmed pixels with less than 40 successes
+# TOT.dat[bos.aoi30m>800 & bos.lulc30m.lumped==1 | bos.aoi30m>800 &  bos.biom30m>=20000, sum(is.na(num.sims.sucessful))] ## 13999 pix 
+# hist(TOT.dat[bos.aoi30m>800 & bos.lulc30m.lumped==1 | bos.aoi30m>800 &  bos.biom30m>=20000, npp.iter.1.hybrid]) ## we have valid npp retrievals here, this is our andy subs
 # TOT.dat[bos.lulc30m.lumped==1 & bos.aoi30m>800, num.sims.sucessful:=100] ## let's assume we have good sims for everything that didn't have to sim :-)
 # TOT.dat[bos.biom30m>=20000 & bos.aoi30m>800, num.sims.sucessful:=100] ## let's assume we have good sims for everything that didn't have to sim :-)
 # AG.dat[bos.lulc30m.lumped==1 & bos.aoi30m>800, num.sims.sucessful:=100] ## let's assume we have good sims for everything that didn't have to sim :-)
@@ -533,12 +533,7 @@ quantile(apply(AG.dat[bos.aoi30m>800 & !is.na(bos.biom30m) & bos.lulc30m.lumped=
 
 
 
-
-
-
-
-
-
+## older way of processing the LULC model spreads... should produce the same results as above?
 ### compile the whole map sum distributions one model at a time (not enough memory to load up every shits at once)
 median.na <- function(x){median(x, na.rm=T)}
 sum.na <- function(x){sum(x, na.rm=T)}
