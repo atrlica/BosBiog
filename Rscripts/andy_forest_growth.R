@@ -888,7 +888,7 @@ biom.dat[aoi>800 & int.can<0.005, int.biom.MgC.ha.can:=0]
 ### recall: this model predicts growth factor (MgC-growth/MgC-biomass) a f(MgC/ha) in closed canopy, with correction factor for interior canopy
 ### VERSION 4: Version 3, but uses a somewhat simpler g.full model for stem growth rate
 ### VERSION 5: Version 4, but iterates 1000 times AND uses the biomass>0 canopy map and edge can/biomass map
-### VERSION 7: Uses corrected plot-growth model with fix to subplot biomass density area calc
+### VERSION 7: Uses corrected plot-growth model with fix to subplot biomass density area calc, and useses all the "Jenkins" equation coefficients from FIA supplemental methods (also includes Chojnaky equations?)
 
 ## establish limits for estimated growth factors based on the distribution of estimated productivities seen in the plots
 edge.hi <- mean(edge.max)+sd(edge.max) ## these were the records we got from the iterative plot biomasses obtained above

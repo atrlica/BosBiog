@@ -1170,7 +1170,7 @@ for(c in 1:length(npp.dump.chunks)){
           tt[,biom1:=biom.b0*(dbh1^biom.b1)*kg.m3]
           tt[V2=="Acer rubrum", biom1:=0.1970*(dbh1^2.1933)]
           tt[V2=="Fagus grandifolia", biom1:=0.1957*(dbh1^2.3916)]
-          tt[fol.eq.form=="loglogw1", fol.biom:=fol.loglogw1(V1, fol.a, fol.b, fol.c)*dw.m2/1000]
+          tt[fol.eq.form=="loglogw1", fol.biom:=fol.loglogw1(V1, fol.a, fol.b, fol.c)*dw.m2/1000]  ## these foliar equations come up with grams of foliar biomass --> /1000 for kg biomass
           tt[fol.eq.form=="loglogw2", fol.biom:=fol.loglogw2(V1, fol.a, fol.b, fol.c)*dw.m2/1000]
           tt[fol.eq.form=="cub", fol.biom:=fol.cub(V1, fol.a, fol.b, fol.c, fol.d)*dw.m2/1000]
           tt[fol.eq.form=="quad", fol.biom:=fol.quad(V1, fol.a, fol.b, fol.c)*dw.m2/1000]
@@ -1374,6 +1374,7 @@ for(c in 1:length(npp.dump.chunks)){
 
 ##
 ### prepare data files with each random pixel realization as a column (within-pixel spread is across rows)
+## build up process chunks appended rows (= pixels)
 #####
 library(data.table)
 library(raster)
