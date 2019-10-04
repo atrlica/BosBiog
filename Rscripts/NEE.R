@@ -158,6 +158,44 @@ plot(bb)
 
 library(data.table)
 biog <- fread("processed/results/NEE.V2.csv")
+
+dim(biog[bos.aoi30m>800 & nee.med<(-500),]) ## 1000 are stronger than 500kg drawdown
+dim(biog[bos.aoi30m>800 & nee.med<(-100),]) ## 20000 are stronger than 100kg drawdown
+dim(biog[bos.aoi30m>800 & nee.med>(500),]) ## 364 are stronger than 500kg source
+dim(biog[bos.aoi30m>800 & nee.med>(100),]) ## 24.5k are stronger than 100kg source
+0.1/900*1E4 ## NEE = -500 is 5.5 MgC/ha/yr NEP, 100kg is 1.1 MgC/ha/yr
+table(biog[bos.aoi30m>800 & nee.med<(-500),bos.lulc30m.lumped])/length(biog[bos.aoi30m>800 & nee.med<(-500), nee.med]) ## 72% are forest, 17% are HDres
+table(biog[bos.aoi30m>800 & nee.med<(-100),bos.lulc30m.lumped])/length(biog[bos.aoi30m>800 & nee.med<(-100), nee.med]) ## 42% forest, 33% HD res, 15% Dev
+
+### cover in HDR and Forest with moderate NEE (-100 to 0 kg NEE)
+hist(biog[bos.aoi30m>800 & nee.med>(-100) & nee.med<0 & bos.lulc30m.lumped==3, bos.isa30m]) ## HD res with moderate drawdown tend to be very paved
+hist(biog[bos.aoi30m>800 & nee.med>(-100) & nee.med<0 & bos.lulc30m.lumped==3, bos.can.redux30m]) ## HD res with moderate drawdown tend to be low-end canopy
+hist(biog[bos.aoi30m>800 & nee.med>(-100) & nee.med<0 & bos.lulc30m.lumped==3, bos.biom30m]) ## HD res with moderate drawdown tend to be low-end biomass
+
+hist(biog[bos.aoi30m>800 & nee.med>(-100) & nee.med<0 & bos.lulc30m.lumped==1, bos.isa30m]) ## forest with moderate drawdown tend to be not at all paved
+hist(biog[bos.aoi30m>800 & nee.med>(-100) & nee.med<0 & bos.lulc30m.lumped==1, bos.can.redux30m]) ## Forest with moderate drawdown tend to be total canopy
+hist(biog[bos.aoi30m>800 & nee.med>(-100) & nee.med<0 & bos.lulc30m.lumped==1, bos.biom30m]) ## forest with moderate drawdown tend to be 20-30k kg biomass (moderate-high)
+
+## cover in HDR and Forest with strong net drawdown (less than -100 NEE)
+hist(biog[bos.aoi30m>800 & nee.med<(-100) & bos.lulc30m.lumped==3, bos.isa30m]) ## HD res with high drawdown tend also to be more paved
+hist(biog[bos.aoi30m>800 & nee.med<(-100) & bos.lulc30m.lumped==3, bos.can.redux30m]) ## moderate canopy (no high or low canopy)
+hist(biog[bos.aoi30m>800 & nee.med<(-100) & bos.lulc30m.lumped==3, bos.biom30m]) ## lower biomass but at least some biomass
+
+hist(biog[bos.aoi30m>800 & nee.med<(-100) & bos.lulc30m.lumped==1, bos.isa30m]) ## forest with high drawdown tend to be not at all paved
+hist(biog[bos.aoi30m>800 & nee.med<(-100) & bos.lulc30m.lumped==1, bos.can.redux30m]) ## still a lot of canopy but not total canopy
+hist(biog[bos.aoi30m>800 & nee.med<(-100) & bos.lulc30m.lumped==1, bos.biom30m]) ##  10-30k kg biomass, less of very high end
+
+## cover in HDR and Forest with strong NEE source (more than +100 NEE)
+hist(biog[bos.aoi30m>800 & nee.med>(100) & bos.lulc30m.lumped==3, bos.isa30m]) ## HD res with high source tend are moderate pavement, but not totally paved
+hist(biog[bos.aoi30m>800 & nee.med>(100) & bos.lulc30m.lumped==3, bos.can.redux30m]) ## tend to be lower canopy
+hist(biog[bos.aoi30m>800 & nee.med>(100) & bos.lulc30m.lumped==3, bos.biom30m]) ## and very low biomass
+
+hist(biog[bos.aoi30m>800 & nee.med>(100) & bos.lulc30m.lumped==1, bos.isa30m]) ## forest with high source (there are maybe 200 of these total) tend to be not at all paved
+hist(biog[bos.aoi30m>800 & nee.med>(100) & bos.lulc30m.lumped==1, bos.can.redux30m]) ## eother little or total canopy
+hist(biog[bos.aoi30m>800 & nee.med>(100) & bos.lulc30m.lumped==1, bos.biom30m]) ## low biomass
+
+
+
 ## linear effects with other pixel factors
 plot(biog[bos.aoi30m>800, bos.isa30m], 
      biog[bos.aoi30m>800, nee.med], 
@@ -261,11 +299,3 @@ par(mfrow=c(1,3)); hist(flux.hold[,2]); hist(flux.hold[,3]); hist(flux.hold[,4])
 mean(flux.hold[,2]) ## 0.840, contrast season avg. 0.819
 mean(flux.hold[,3]) ## 1.239, contrast season avg. 1.228
 mean(flux.hold[,4]) ## 0.472, contrast season avg. 0.478
-
-### get distribution of summed annual factors for each soil context
-samp1 <- sample(1:1000, size=1000, replace=F)
-samp2 <- sample(1:1000, size=1000, replace=F)
-samp3 <- sample(1:1000, size=1000, replace=F)
-ls.soilR.GS.rand <- flux.hold[samp1,3]
-grass.soilR.GS.rand <- flux.hold[samp2,2]
-forest.soilR.GS.rand <- flux.hold[samp3,4]

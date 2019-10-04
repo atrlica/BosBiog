@@ -193,7 +193,7 @@ TOT.dat[,tot.med.MgC.ha:=((tot.med/2000)/bos.aoi30m)*1E4]
 hist(TOT.dat[bos.aoi30m>800 & !is.na(bos.biom30m), tot.med.MgC.ha]) ## up to 12 MgC/ha/yr, much longer positive tail
 TOT.dat[,MgC.ha:=1E4*((bos.biom30m/2000)/bos.aoi30m)]
 plot(TOT.dat[bos.aoi30m>800 & bos.biom30m>0, MgC.ha], TOT.dat[bos.aoi30m>800 & bos.biom30m>0, tot.med.MgC.ha]) ## peaks about 150 MgC/ha and spills to a lower growth curve (presume this is forest interior)
-plot(TOT.dat[bos.aoi30m>800 & bos.biom30m>0, MgC.ha], TOT.dat[bos.aoi30m>800 & bos.biom30m>0, tot.med.MgC.ha/MgC.ha], ylim=c(0,0.2)) ## hyperbolic, somewhere around 0.05-0.1 for most of the curve
+plot(TOT.dat[bos.aoi30m>800 & bos.biom30m>0, MgC.ha], TOT.dat[bos.aoi30m>800 & bos.biom30m>0, tot.med.MgC.ha/MgC.ha], ylim=c(0,0.2)) ## ratio of productivity per C density hyperbolic, somewhere around 0.05-0.1 for most of the curve
 
 ### TOTAL NPP by LULC
 quantile(apply(TOT.dat[bos.aoi30m>800 & !is.na(bos.biom30m) & bos.lulc30m.lumped==1, 25:1024], MARGIN=2, FUN=sum.na)/2000/1000, probs=c(0.025, 0.5, 0.975))
@@ -284,7 +284,7 @@ colnames(tree.sum) <- c("LULC", "mean.treeNPP.GgC", "median.pix.treeNPP.kgC")
 write.csv(tree.sum, "processed/results/hybrid.TOTAL.summary.V8.csv")
 
 
-## how do biomass components shake out?.
+## how do biomass components shake out?
 med.na <- median.na
 ### foliar fraction on annual aboveground productivity
 fol.AG.frac <- F.dat[, 25:1024]/AG.dat[, 25:1024]
