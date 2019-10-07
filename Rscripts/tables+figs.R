@@ -105,71 +105,66 @@ colnames(fin) <- c("LULC", "NPP.tree", "SoilR", "NPP.grass", "NEE")
 write.csv(fin, "processed/results/TABLE1_NEE-comps-by-LULC.csv")
 #####
 
+##
+### Figure 1: Pixel median spreads
+#####
+library(viridis)
+lulc.pal <- viridis(6)
+lulc.pal <- c(lulc.pal[5],lulc.pal[2],lulc.pal[3],lulc.pal[4],lulc.pal[6],lulc.pal[1])
+library(data.table)
+library(ggplot2)
+library(raster)
+library(reshape2)
+sum.na <- function(x){sum(x, na.rm=T)}
+med.na <- function(x){median(x, na.rm=T)}
 
+## NEE totals
+bdat.fin <- fread(file="processed/results/NEE.V2.csv")
+bdat.fin[,pix.med:=apply(bdat.fin[, 8:1009], FUN=med.na, MARGIN=1)]
+bdat.fin <- bdat.fin[!is.na(bos.lulc30m.lumped) & !is.na(bos.aoi30m) & bos.aoi30m>800,]
+summary(bdat.fin$pix.med) ## this is good, no missing values
+bdat.fin[,bos.lulc30m.lumped:=as.factor(bos.lulc30m.lumped)]
+bdat.fin <- bdat.fin[bos.lulc30m.lumped!=6 & !(is.na(bos.lulc30m.lumped)),]
+bdat.fin[,lulc:=factor(bos.lulc30m.lumped, levels=c(2,5,3,4,1), ordered=T)]
+bdat.fin[,pix.med.MgC.ha:=pix.med/bos.aoi30m*1E4/1000]
 
+lulc.pal <- viridis(6)
+plot(c(2,5,3,4,1,6), pch=15, col=lulc.pal)
+lulc.pal <- c(lulc.pal[2],lulc.pal[6], lulc.pal[3],lulc.pal[4],lulc.pal[5])
 
+bplots.pixmed <- ggplot(bdat.fin, aes(x=lulc, y=pix.med.MgC.ha))+
+  geom_hline(yintercept=0, linetype=2, color="gray55", size=1)+
+  geom_boxplot(aes(fill=lulc), outlier.shape = NA, coef=1.5, varwidth=TRUE)+
+  scale_fill_manual(values = c(lulc.pal),
+                    name="Land Cover",
+                    breaks=c(2,5,3,4,1),
+                    labels=c("Developed", "Other Veg.", "HD Resid.", "LD Resid.", "Forest"))+
+  scale_color_manual(values=c("black", "black"), guide="none")+
+  ylab("Pixel median C flux (MgC/ha/yr)")+
+  coord_cartesian(ylim = c(-8, 8))+
+  theme(axis.line = element_line(colour = "black"),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_blank(),
+        panel.background = element_blank(),
+        axis.text=element_text(size=10),
+        axis.title=element_text(size=10, face="bold"),
+        legend.text=element_text(size=6.5),
+        legend.title=element_text(size=8, face="bold"),
+        axis.title.x=element_blank(),
+        axis.ticks.x=element_blank(),
+        axis.text.x = element_text(angle=30, hjust=1, size=10, face="bold"),
+        strip.text.x = element_text(size = 10, face="bold"))+
+  guides(fill=FALSE, alpha=FALSE)+
+  scale_x_discrete(labels=c("Developed", "Other Veg.", "HD Resid.", "LD Resid.", "Forest"))
 
+bplots.pixmed
+png(width=4, height=4, units="in", res=600, bg="white", filename="images/Fig1_pixelNEE.png")
+bplots.pixmed
+dev.off()
+#####
 
-
-
-## source/sink strength in MgC/ha/yr
-nee.meds <- rbind(quantile(apply(biog[bos.aoi30m>800 & bos.lulc30m.lumped==1,8:1007]/1000/biog[bos.aoi30m>800 & bos.lulc30m.lumped==1,bos.aoi30m]*1E4, FUN=med.na, MARGIN=1), probs=c(0.025, 0.5, 0.975)),
-                  quantile(apply(biog[bos.aoi30m>800 & bos.lulc30m.lumped==2,8:1007]/1000/biog[bos.aoi30m>800 & bos.lulc30m.lumped==1,bos.aoi30m]*1E4, FUN=med.na, MARGIN=1), probs=c(0.025, 0.5, 0.975)),
-                  quantile(apply(biog[bos.aoi30m>800 & bos.lulc30m.lumped==3,8:1007]/1000/biog[bos.aoi30m>800 & bos.lulc30m.lumped==1,bos.aoi30m]*1E4, FUN=med.na, MARGIN=1), probs=c(0.025, 0.5, 0.975)),
-                  quantile(apply(biog[bos.aoi30m>800 & bos.lulc30m.lumped==4,8:1007]/1000/biog[bos.aoi30m>800 & bos.lulc30m.lumped==1,bos.aoi30m]*1E4, FUN=med.na, MARGIN=1), probs=c(0.025, 0.5, 0.975)),
-                  quantile(apply(biog[bos.aoi30m>800 & bos.lulc30m.lumped==5,8:1007]/1000/biog[bos.aoi30m>800 & bos.lulc30m.lumped==1,bos.aoi30m]*1E4, FUN=med.na, MARGIN=1), probs=c(0.025, 0.5, 0.975)),
-                  quantile(apply(biog[bos.aoi30m>800 & bos.lulc30m.lumped==6,8:1007]/1000/biog[bos.aoi30m>800 & bos.lulc30m.lumped==1,bos.aoi30m]*1E4, FUN=med.na, MARGIN=1), probs=c(0.025, 0.5, 0.975)),
-                  quantile(apply(biog[bos.aoi30m>800,8:1007]/1000/biog[bos.aoi30m>800 & bos.lulc30m.lumped==1,bos.aoi30m]*1E4, FUN=med.na, MARGIN=1), probs=c(0.025, 0.5, 0.975), na.rm=T))
-nee.meds <- round(nee.meds, digits=2)
-
-nee.sum <- data.frame(cbind(c("Forest", "Dev", "HDRes", "LDRes", "OVeg", "Water", "Total"),
-                            apply(nee.tots, FUN=paste.me, MARGIN=1),
-                            apply(nee.meds, FUN=paste.me, MARGIN=1)))
-colnames(nee.sum) <- c("LULC", "mean.nee.GgC", "median.pix.nee.MgC-ha-yr")
-write.csv(nee.sum, "processed/results/nee.summary.V2.csv")
-
-### Version history
-### V1: static grass NPP, no tree leaf C uptake
-### V2: GAM error for total seasonal soil Resp, foliar and root NPP included in tree NPP
-
-## make some tifs
-aa <- raster("/projectnb/buultra/atrlica/BosBiog/processed/bos.aoi230m.tif")
-aa <- setValues(aa, biog[,nee.med])
-writeRaster(aa, "processed/results/nee.pixmed.V2.tif", format="GTiff", overwrite=T)
-plot(aa)
-bb <- aa
-bb <- setValues(bb, biog[,nee.med.MgC.ha.yr])
-writeRaster(bb, "processed/results/nee.pixmed.MgC.ha.yr.V2.tif", format="GTiff", overwrite=T)
-plot(bb)
-
-
-# ### some analysis
-# 
-# ### what are contributions from different sources/sinks by LULC
-# map.tots <- biog[bos.aoi30m>800, .((-1*sum(tree.npp, na.rm=T)/1E6),
-#                                    (-1*sum(grass.npp, na.rm = T)/1E6),
-#                                    (sum(soilR, na.rm=T)/1E6),
-#                                    (sum(nee, na.rm=T)/1E6)),
-#                  by=bos.lulc30m.lumped]
-#  
-# tot <- biog[bos.aoi30m>800, 
-#             .((-1*sum(tree.npp, na.rm=T)/1E6),
-#               (-1*sum(grass.npp, na.rm = T)/1E6),
-#               (sum(soilR, na.rm=T)/1E6),
-#               (sum(nee, na.rm=T)/1E6))]
-# 
-# map.tots <- as.data.frame(map.tots)
-# map.tots$bos.lulc30m.lumped <- as.numeric(as.character(map.tots$bos.lulc30m.lumped))
-# map.tots <- map.tots[order(map.tots$bos.lulc30m.lumped),]
-# map.tots$LULC <- c("Forest", "Dev", "HDRes", "LDRes", "OVeg", "water", "NA")
-# tot <- as.data.frame(tot)
-# tot$LULC <- "TOTAL"
-# colnames(tot)[1:4] <- c("Tree.NPP", "Grass.NPP", "SoilR", "NEE")
-# map.tots <- map.tots[,2:6]
-# colnames(map.tots)[1:4] <- c("Tree.NPP", "Grass.NPP", "SoilR", "NEE")
-# 
-# write.csv(rbind(map.tots, tot), "processed/results/NEE.V2.sources.GgC.csv")
-
+## some analysis
 
 library(data.table)
 biog <- fread("processed/results/NEE.V2.csv")
@@ -259,7 +254,7 @@ for(m in 1:length(mods)){
   dd <- as.data.table(cbind(t[["fit"]], t[["se.fit"]], d.x))
   names(dd)=c("fit", "se.fit", "var", "lulc")
   dd <- dd[order(dd$var),]
-  plot(biog[bos.aoi30m>800,get(var.names[m])], biog[bos.aoi30m>800, nee.med], col="purple", main=paste(var.names[m]), ylim=c(-5, 5))
+  plot(biog[bos.aoi30m>800,get(var.names[m])], biog[bos.aoi30m>800, nee.med], col="purple", main=paste(var.names[m]))
   lines(dd[lulc==1, var], dd[lulc==1, fit], col="green", lwd=4)
   lines(dd[lulc==2, var], dd[lulc==2, fit], col="blue", lwd=4)
   lines(dd[lulc==3, var], dd[lulc==3, fit], col="red", lwd=4)
@@ -274,43 +269,17 @@ dim(biog[bos.aoi30m>800 & nee.med==0,]) ## ~23k are literally 0
 dim(biog[bos.aoi30m>800 & abs(nee.med.MgC.ha.yr)<0.2,]) ## 44.8k are very nearly 0, so predicting almost 0 is a good idea
 hist(biog[bos.aoi30m>800, bos.grass30m]) ## most stuff is below 22% grass cover, grass GAM is lame
 
+### what about pixels that aren't just dead?
+plot(biog[bos.aoi30m>800 & bos.isa30m<=0.95, 1-bos.isa30m],
+     biog[bos.aoi30m>800 & bos.isa30m<=0.95, nee.med],
+     col=biog[bos.aoi30m>800 & bos.isa30m<=0.95, bos.lulc30m.lumped])
+
+plot(biog[bos.aoi30m>800 & bos.isa30m<=0.95, bos.can.redux30m],
+     biog[bos.aoi30m>800 & bos.isa30m<=0.95, nee.med],
+     col=biog[bos.aoi30m>800 & bos.isa30m<=0.95, bos.lulc30m.lumped])
+
+plot(biog[bos.aoi30m>800 & bos.isa30m<=0.95, bos.biom30m],
+     biog[bos.aoi30m>800 & bos.isa30m<=0.95, nee.med],
+     col=biog[bos.aoi30m>800 & bos.isa30m<=0.95, bos.lulc30m.lumped])
 
 
-
-
-for(jj in c("Lawn", "Other", "Forest")){
-  e <- gam(umol.m2.s~s(DOY, bs="cr"), 
-           data=resp[Location==jj & !(is.na(umol.m2.s)),], se.fit=T)
-  
-  t <- predict(e, type="response", se.fit=T, newdata=d.x)
-  t.dat <- data.frame(fit=t[["fit"]], se=t[["se.fit"]], DOY=d.x$DOY)
-  t.dat <- t.dat[order(t.dat$DOY),]
-  plot(resp[Location==jj, DOY], resp[Location==jj, umol.m2.s], col="purple", main=paste(jj))
-  lines(t.dat$DOY, t.dat$fit, col="black")
-  lines(t.dat$DOY, t.dat$fit-(2*t$se), col="red")
-  lines(t.dat$DOY, t.dat$fit+(2*t$se), col="blue")
-  ## Ok these give us good boundaries at every level of DOY we look at
-  
-  ## now randomly predict flux CO2 in each bin and then get the integral for growing season
-  ## (days/(dim(d.x)[1]))*24*60*60 ## number of seconds per bin
-  int <- numeric()
-  for(r in 1:1000){ ## 1000 boostraps of this
-    s <- numeric()
-    for(i in 1:dim(t.dat)[1]){ ## get a sample at every level
-      s <- c(s, 
-             (rnorm(n=1,
-                    mean=t.dat$fit[i], 
-                    sd=t.dat$se[i]))*1E-6*44.01*1E-3*(12/44.01)*(days/(dim(d.x)[1]))*24*60*60
-      ) ## this is a randomly selected flux prediction for every bin, corrected to kgC total flux in that bin
-    }
-    int <- c(int, sum(s))
-    print(paste("finished bootstrap", r))
-  }
-  # hist(int) ## not a lot of variance here (model interval is small), slightly higher than static
-  flux.hold <- cbind(flux.hold, int)
-}
-colnames(flux.hold) <- c("sample.num", "Lawn.GStotal", "Other.GStotal", "Forest.GStotal")
-par(mfrow=c(1,3)); hist(flux.hold[,2]); hist(flux.hold[,3]); hist(flux.hold[,4])
-mean(flux.hold[,2]) ## 0.840, contrast season avg. 0.819
-mean(flux.hold[,3]) ## 1.239, contrast season avg. 1.228
-mean(flux.hold[,4]) ## 0.472, contrast season avg. 0.478

@@ -260,42 +260,28 @@ dim(biog[bos.aoi30m>800 & abs(nee.med.MgC.ha.yr)<0.2,]) ## 44.8k are very nearly
 hist(biog[bos.aoi30m>800, bos.grass30m]) ## most stuff is below 22% grass cover, grass GAM is lame
 
 
+### what about pixels that aren't just dead?
+plot(biog[bos.aoi30m>800 & bos.isa30m<=0.95, 1-bos.isa30m],
+     biog[bos.aoi30m>800 & bos.isa30m<=0.95, nee.med],
+     col=biog[bos.aoi30m>800 & bos.isa30m<=0.95, bos.lulc30m.lumped])
+
+plot(biog[bos.aoi30m>800 & bos.isa30m<=0.95, bos.can.redux30m],
+     biog[bos.aoi30m>800 & bos.isa30m<=0.95, nee.med],
+     col=biog[bos.aoi30m>800 & bos.isa30m<=0.95, bos.lulc30m.lumped])
+
+plot(biog[bos.aoi30m>800 & bos.isa30m<=0.95, bos.biom30m],
+     biog[bos.aoi30m>800 & bos.isa30m<=0.95, nee.med],
+     col=biog[bos.aoi30m>800 & bos.isa30m<=0.95, bos.lulc30m.lumped])
 
 
+## what does NEE look like against landsat EVI?
+evi <- raster("H:/FragEVI/processed/EVI/030005-6_2010-2012_EVI.tif")
+aoi <- raster("processed/bos.aoi230m.tif")
+evi <- projectRaster(from=evi, to = aoi, method="bilinear")
+evi <- crop(evi, aoi)
+biog[,evi:=getValues(evi)]
 
-for(jj in c("Lawn", "Other", "Forest")){
-        e <- gam(umol.m2.s~s(DOY, bs="cr"), 
-                 data=resp[Location==jj & !(is.na(umol.m2.s)),], se.fit=T)
-        
-        t <- predict(e, type="response", se.fit=T, newdata=d.x)
-        t.dat <- data.frame(fit=t[["fit"]], se=t[["se.fit"]], DOY=d.x$DOY)
-        t.dat <- t.dat[order(t.dat$DOY),]
-        plot(resp[Location==jj, DOY], resp[Location==jj, umol.m2.s], col="purple", main=paste(jj))
-        lines(t.dat$DOY, t.dat$fit, col="black")
-        lines(t.dat$DOY, t.dat$fit-(2*t$se), col="red")
-        lines(t.dat$DOY, t.dat$fit+(2*t$se), col="blue")
-        ## Ok these give us good boundaries at every level of DOY we look at
-        
-        ## now randomly predict flux CO2 in each bin and then get the integral for growing season
-        ## (days/(dim(d.x)[1]))*24*60*60 ## number of seconds per bin
-        int <- numeric()
-        for(r in 1:1000){ ## 1000 boostraps of this
-                s <- numeric()
-                for(i in 1:dim(t.dat)[1]){ ## get a sample at every level
-                        s <- c(s, 
-                               (rnorm(n=1,
-                                      mean=t.dat$fit[i], 
-                                      sd=t.dat$se[i]))*1E-6*44.01*1E-3*(12/44.01)*(days/(dim(d.x)[1]))*24*60*60
-                        ) ## this is a randomly selected flux prediction for every bin, corrected to kgC total flux in that bin
-                }
-                int <- c(int, sum(s))
-                print(paste("finished bootstrap", r))
-        }
-        # hist(int) ## not a lot of variance here (model interval is small), slightly higher than static
-        flux.hold <- cbind(flux.hold, int)
-}
-colnames(flux.hold) <- c("sample.num", "Lawn.GStotal", "Other.GStotal", "Forest.GStotal")
-par(mfrow=c(1,3)); hist(flux.hold[,2]); hist(flux.hold[,3]); hist(flux.hold[,4])
-mean(flux.hold[,2]) ## 0.840, contrast season avg. 0.819
-mean(flux.hold[,3]) ## 1.239, contrast season avg. 1.228
-mean(flux.hold[,4]) ## 0.472, contrast season avg. 0.478
+plot(biog[bos.aoi30m>800, evi],
+     biog[bos.aoi30m>800 , nee.med],
+     col=biog[bos.aoi30m>800, bos.lulc30m.lumped])
+
