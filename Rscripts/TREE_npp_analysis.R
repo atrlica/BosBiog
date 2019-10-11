@@ -115,12 +115,14 @@ for(c in 1:length(comp)){ ## prep a hybrid file with the biomass components list
 ### analysis of HYBRID model results
 #####
 library(data.table)
-setwd("/projectnb/buultra/atrlica/BosBiog/")
+# setwd("/projectnb/buultra/atrlica/BosBiog/")
 AG.dat <- fread("processed/results/hybrid.AG.results.V8.csv")
 TOT.dat <- fread("processed/results/hybrid.TOTAL.results.V8.csv")
 R.dat <- fread("processed/results/hybrid.R.results.V8.csv")
 F.dat <- fread("processed/results/hybrid.F.results.V8.csv")
-old.dat <- fread("/projectnb/buultra/atrlica/FragEVI/processed/results/hybrid.results.V7.csv")
+# old.dat <- fread("/projectnb/buultra/atrlica/FragEVI/processed/results/hybrid.results.V7.csv")
+old.dat <- fread("H:/FragEVI/processed/results/hybrid.results.V7.csv")
+
 
 ## distribution of pixel medians
 median.na <- function(x){median(x, na.rm=T)}
@@ -189,13 +191,79 @@ plot(rr) ## Look the positive biases are all in the andy forest pixels
 
 ##
 ### what is productivity like, and are we getting sensible values for the different components?
-TOT.dat[,tot.med.MgC.ha:=((tot.med/2000)/bos.aoi30m)*1E4]
+TOT.dat[,tot.med.MgC.ha:=((pix.med/2000)/bos.aoi30m)*1E4]
 hist(TOT.dat[bos.aoi30m>800 & !is.na(bos.biom30m), tot.med.MgC.ha]) ## up to 12 MgC/ha/yr, much longer positive tail
 TOT.dat[,MgC.ha:=1E4*((bos.biom30m/2000)/bos.aoi30m)]
 plot(TOT.dat[bos.aoi30m>800 & bos.biom30m>0, MgC.ha], TOT.dat[bos.aoi30m>800 & bos.biom30m>0, tot.med.MgC.ha]) ## peaks about 150 MgC/ha and spills to a lower growth curve (presume this is forest interior)
 plot(TOT.dat[bos.aoi30m>800 & bos.biom30m>0, MgC.ha], TOT.dat[bos.aoi30m>800 & bos.biom30m>0, tot.med.MgC.ha/MgC.ha], ylim=c(0,0.2)) ## ratio of productivity per C density hyperbolic, somewhere around 0.05-0.1 for most of the curve
 
-### TOTAL NPP by LULC
+AG.dat[,AG.med.MgC.ha:=((pix.med/2000)/bos.aoi30m)*1E4]
+hist(AG.dat[bos.aoi30m>800 & !is.na(bos.biom30m), AG.med.MgC.ha]) ## up to 4 MgC/ha/yr, much longer positive tail
+
+F.dat[,F.med.MgC.ha:=((pix.med/2000)/bos.aoi30m)*1E4]
+hist(F.dat[bos.aoi30m>800 & !is.na(bos.biom30m), F.med.MgC.ha]) ## up to 8 MgC/ha/yr, much longer positive tail
+
+### table of AGwoody:AGtotal figures
+# dim(TOT.dat[bos.aoi30m>800 & bos.can.redux30m>=0.85,]) ## about 8k if you go to 85%, only 3k at 95%
+### To compare to the HF ratio
+AG.dat[, Fnpp:=F.dat[,pix.med]]
+AG.dat[, AGWI.vs.AGtot:=pix.med/(pix.med+Fnpp)]
+hist(AG.dat[bos.aoi30m>800 & bos.can.redux30m>=0.85, AGWI.vs.AGtot]) ## about 40%!! (gets up to about 0.6 if you take down to 5% canopy)
+
+nicely <- function(x,y,z){
+  return(paste0(round(x, 1), " (", round(y,1), "-", round(z,1), ")"))
+}
+nicely2 <- function(x,y,z){
+  return(paste0(round(x, 2), " (", round(y,2), "-", round(z,2), ")"))
+}
+
+npp.fin <- data.frame(c("Forest", "Dev", "HDR", "LDR", "OVeg", "Water", "Total"))
+quants <- c(0.025, 0.5, 0.975)
+holdem <- list()
+for(i in 1:3){
+  biom.med <- TOT.dat[bos.aoi30m>800 & bos.can.redux30m>=0.85, quantile(bos.biom30m/2000/bos.aoi30m*1E4, probs=c(quants[i]),na.rm=T), by=bos.lulc30m.lumped]
+  totNPP.med <- TOT.dat[bos.aoi30m>800 & bos.can.redux30m>=0.85, quantile(pix.med/2000/bos.aoi30m*1E4, probs=c(quants[i]),na.rm=T), by=bos.lulc30m.lumped]
+  AGNPP.med <- AG.dat[bos.aoi30m>800 & bos.can.redux30m>=0.85, quantile(pix.med/2000/bos.aoi30m*1E4, probs=c(quants[i]),na.rm=T), by=bos.lulc30m.lumped]
+  ratio.med <- AG.dat[bos.aoi30m>800 & bos.can.redux30m>=0.85, quantile(AGWI.vs.AGtot, probs=c(quants[i]),na.rm=T), by=bos.lulc30m.lumped]
+  
+  biom.tot <- TOT.dat[bos.aoi30m>800 & bos.can.redux30m>=0.85, quantile(bos.biom30m/2000/bos.aoi30m*1E4, probs=c(quants[i]),na.rm=T)]
+  totNPP.tot <- TOT.dat[bos.aoi30m>800 & bos.can.redux30m>=0.85, quantile(pix.med/2000/bos.aoi30m*1E4, probs=c(quants[i]),na.rm=T)]
+  AGNPP.tot <- AG.dat[bos.aoi30m>800 & bos.can.redux30m>=0.85, quantile(pix.med/2000/bos.aoi30m*1E4, probs=c(quants[i]),na.rm=T)]
+  ratio.tot <- AG.dat[bos.aoi30m>800 & bos.can.redux30m>=0.85, quantile(AGWI.vs.AGtot, probs=c(quants[i]),na.rm=T)]
+  
+  tmp <- merge(biom.med, totNPP.med, by="bos.lulc30m.lumped")
+  tmp <- merge(tmp, AGNPP.med, by="bos.lulc30m.lumped")
+  tmp <- merge(tmp, ratio.med, by="bos.lulc30m.lumped")
+  tmp <- data.frame(tmp)
+  tmp <- rbind(tmp, c(7, biom.tot, totNPP.tot, AGNPP.tot, ratio.tot))
+  holdem[[i]] <- tmp
+  if(i==3){
+    npp.fin <- cbind(npp.fin,
+                     nicely(holdem[[2]][[2]],
+                            holdem[[1]][[2]],
+                            holdem[[3]][[2]]
+                     ))
+    npp.fin <- cbind(npp.fin,
+                     nicely(holdem[[2]][[3]],
+                            holdem[[1]][[3]],
+                            holdem[[3]][[3]]
+                     ))
+    npp.fin <- cbind(npp.fin,
+                     nicely(holdem[[2]][[4]],
+                            holdem[[1]][[4]],
+                            holdem[[3]][[4]]
+                     ))
+    npp.fin <- cbind(npp.fin,
+                     nicely2(holdem[[2]][[5]],
+                             holdem[[1]][[5]],
+                             holdem[[3]][[5]]
+                     ))
+    colnames(npp.fin) <- c("LULC", "biomass", "TotalNPP", "AGWI", "AGWIvsAGTotal")
+  }
+}
+
+
+
 quantile(apply(TOT.dat[bos.aoi30m>800 & !is.na(bos.biom30m) & bos.lulc30m.lumped==1, 25:1024], MARGIN=2, FUN=sum.na)/2000/1000, probs=c(0.025, 0.5, 0.975))
 ## Forest: 6.2 (2.7-15.0)
 quantile(apply(TOT.dat[bos.aoi30m>800 & !is.na(bos.biom30m) & bos.lulc30m.lumped==2, 25:1024], MARGIN=2, FUN=sum.na)/2000/1000, probs=c(0.025, 0.5, 0.975))

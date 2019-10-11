@@ -105,6 +105,166 @@ colnames(fin) <- c("LULC", "NPP.tree", "SoilR", "NPP.grass", "NEE")
 write.csv(fin, "processed/results/TABLE1_NEE-comps-by-LULC.csv")
 #####
 
+### TABLE S1 -- fractional areas
+#####
+library(raster)
+library(data.table)
+# aoi <- raster("processed/bos.aoi230m.tif") 
+# can <- raster("H:/FragEVI/processed/boston/bos.can.redux30m.tif")
+biom <- fread("processed/results/NEE.V2.csv")
+soil <- fread("processed/soilR.cov.fracs.csv")
+soil[,pix.ID:=seq(1:dim(soil)[1])]
+dat <- biom[, 1:7]
+dat <- merge(dat, soil, by="pix.ID")
+can.tot <- dat[,sum(bos.can.redux30m*bos.aoi30m, na.rm=T)/1E4, by=bos.lulc30m.lumped]
+aoi.tot <- dat[,sum(bos.aoi30m, na.rm=T)/1E4, by=bos.lulc30m.lumped]
+isa.tot <- dat[,sum(bos.isa30m*bos.aoi30m, na.rm=T)/1E4, by=bos.lulc30m.lumped]
+grass.tot <- dat[,sum(bos.grass30m, na.rm=T)/1E4, by=bos.lulc30m.lumped]
+cov.tot <- merge(aoi.tot, can.tot, by="bos.lulc30m.lumped")
+cov.tot <- merge(cov.tot, isa.tot, by="bos.lulc30m.lumped")
+cov.tot <- merge(cov.tot, grass.tot, by="bos.lulc30m.lumped")
+lu.names <- c("NA", "Forest", "Dev", "HDRes", "LDRes", "OVeg", "water")
+cov.tot <- cbind(lu.names, cov.tot)
+names(cov.tot) <- c("lu.names", "lu.num", "area.total", "can.total", "isa.total", "grass.total")
+### get the summed areas of shit from the soilR calculations 
+## recall: each pixel in this was processed to have it's total raw area (m2) in each of the lulc*pervious categories, so DEV pixels might still have OVEG pervious areas etc.
+forest.bar <- dat[,sum(Forest.barr, na.rm=T)]/1E4
+forest.subcan <- dat[,sum(Forest.canPerv, na.rm=T)]/1E4
+
+dev.bar <- dat[,sum(Dev.barr, na.rm=T)]/1E4
+dev.subcan <- dat[,sum(Dev.canPerv, na.rm=T)]/1E4
+
+HD.bar <- dat[,sum(HDRes.barr, na.rm=T)]/1E4
+HD.subcan <- dat[,sum(HDRes.canPerv, na.rm=T)]/1E4
+
+LD.bar <- dat[,sum(LDRes.barr, na.rm=T)]/1E4
+LD.subcan <- dat[,sum(LDRes.canPerv, na.rm=T)]/1E4
+
+OVeg.bar <- dat[,sum(OVeg.barr, na.rm=T)]/1E4
+OVeg.subcan <- dat[,sum(OVeg.canPerv, na.rm=T)]/1E4
+
+water.tot <- dat[,sum(water.open, na.rm=T)]/1E4 + dat[,sum(water.perv, na.rm=T)]/1E4
+
+barr <- c(NA, forest.bar, dev.bar, HD.bar, LD.bar, OVeg.bar, water.tot)
+subcan <- c(NA, forest.subcan, dev.subcan, HD.subcan, LD.subcan, OVeg.subcan, NA)
+
+cov.tot <- cbind(cov.tot, barr)
+cov.tot <- cbind(cov.tot, subcan)
+
+frac.pretty <- function(area, frac.basis){
+  cc <- paste0(round(area, 0), " (", round((area/frac.basis)*100, 0),"%)")
+  return(cc)
+}
+cov.tot <- cov.tot[2:7,]
+cov.final <- cbind(cov.tot$lu.names,
+                   frac.pretty(cov.tot$area.total, sum(cov.tot$area.total)))
+cov.final <- cbind(cov.final,
+                   frac.pretty(cov.tot$can.total, cov.tot$area.total))
+cov.final <- cbind(cov.final,
+                   frac.pretty(cov.tot$isa.total, cov.tot$area.total))
+
+perv.tots <- cov.tot$grass.total+cov.tot$barr+cov.tot$subcan
+cov.final <- cbind(cov.final,
+                   frac.pretty(cov.tot$grass.total, perv.tots))
+cov.final <- cbind(cov.final,
+                   frac.pretty(cov.tot$subcan, perv.tots))
+cov.final <- cbind(cov.final,
+                   frac.pretty(cov.tot$barr, perv.tots))
+colnames(cov.final) <- c("LULC", "Area.fractotal", "can.fractotal", "ISA,fractotal", "grass.fracperv", "subcan.fracperv", "barr.fracperv")
+
+map.tot <- dat[,sum(bos.aoi30m, na.rm=T)]/1E4
+map.can <- dat[,sum(bos.can.redux30m*bos.aoi30m, na.rm=T)]/1E4
+map.isa <- dat[,sum(bos.isa30m*bos.aoi30m, na.rm=T)]/1E4
+map.grass <- (dat[,sum(Forest.grass, na.rm=T)]+dat[,sum(Dev.grass, na.rm=T)]+
+  dat[,sum(HDRes.grass, na.rm=T)]+dat[,sum(LDRes.grass, na.rm=T)]+
+  dat[,sum(OVeg.grass, na.rm=T)])/1E4
+map.subcan <- (dat[,sum(Forest.canPerv, na.rm=T)]+dat[,sum(Dev.canPerv, na.rm=T)]+
+                 dat[,sum(HDRes.canPerv, na.rm=T)]+dat[,sum(LDRes.canPerv, na.rm=T)]+
+                 dat[,sum(OVeg.canPerv, na.rm=T)])/1E4
+map.barr <- (dat[,sum(Forest.barr, na.rm=T)]+dat[,sum(Dev.barr, na.rm=T)]+
+                 dat[,sum(HDRes.barr, na.rm=T)]+dat[,sum(LDRes.barr, na.rm=T)]+
+                 dat[,sum(OVeg.barr, na.rm=T)])/1E4
+
+cov.final <- rbind(cov.final,
+                   c("Total",
+  frac.pretty(map.tot, map.tot),
+  frac.pretty(map.can, map.tot), frac.pretty(map.isa, map.tot), 
+  frac.pretty(map.grass, sum(map.grass, map.subcan, map.barr)),
+  frac.pretty(map.subcan, sum(map.grass, map.subcan, map.barr)),
+  frac.pretty(map.barr, sum(map.grass, map.subcan, map.barr)))
+)
+
+write.csv(cov.final,"docs/cover.area.summary.csv")
+#####
+
+### TABLE S2 -- Tree NPP components vs. HF
+#####
+AG.dat <- fread("processed/results/hybrid.AG.results.V8.csv")
+TOT.dat <- fread("processed/results/hybrid.TOTAL.results.V8.csv")
+R.dat <- fread("processed/results/hybrid.R.results.V8.csv")
+F.dat <- fread("processed/results/hybrid.F.results.V8.csv")
+# # old.dat <- fread("/projectnb/buultra/atrlica/FragEVI/processed/results/hybrid.results.V7.csv")
+# old.dat <- fread("H:/FragEVI/processed/results/hybrid.results.V7.csv")
+AG.dat[, Fnpp:=F.dat[,pix.med]]
+AG.dat[, AGWI.vs.AGtot:=pix.med/(pix.med+Fnpp)]
+hist(AG.dat[bos.aoi30m>800 & bos.can.redux30m>=0.85, AGWI.vs.AGtot]) ## about 40%!! (gets up to about 0.6 if you take down to 5% canopy)
+
+nicely <- function(x,y,z){
+  return(paste0(round(x, 1), " (", round(y,1), "-", round(z,1), ")"))
+}
+nicely2 <- function(x,y,z){
+  return(paste0(round(x, 2), " (", round(y,2), "-", round(z,2), ")"))
+}
+
+npp.fin <- data.frame(c("Forest", "Dev", "HDR", "LDR", "OVeg", "Water", "Total"))
+quants <- c(0.025, 0.5, 0.975)
+holdem <- list()
+for(i in 1:3){
+  biom.med <- TOT.dat[bos.aoi30m>800 & bos.can.redux30m>=0.85, quantile(bos.biom30m/2000/bos.aoi30m*1E4, probs=c(quants[i]),na.rm=T), by=bos.lulc30m.lumped]
+  totNPP.med <- TOT.dat[bos.aoi30m>800 & bos.can.redux30m>=0.85, quantile(pix.med/2000/bos.aoi30m*1E4, probs=c(quants[i]),na.rm=T), by=bos.lulc30m.lumped]
+  AGNPP.med <- AG.dat[bos.aoi30m>800 & bos.can.redux30m>=0.85, quantile(pix.med/2000/bos.aoi30m*1E4, probs=c(quants[i]),na.rm=T), by=bos.lulc30m.lumped]
+  ratio.med <- AG.dat[bos.aoi30m>800 & bos.can.redux30m>=0.85, quantile(AGWI.vs.AGtot, probs=c(quants[i]),na.rm=T), by=bos.lulc30m.lumped]
+  
+  biom.tot <- TOT.dat[bos.aoi30m>800 & bos.can.redux30m>=0.85, quantile(bos.biom30m/2000/bos.aoi30m*1E4, probs=c(quants[i]),na.rm=T)]
+  totNPP.tot <- TOT.dat[bos.aoi30m>800 & bos.can.redux30m>=0.85, quantile(pix.med/2000/bos.aoi30m*1E4, probs=c(quants[i]),na.rm=T)]
+  AGNPP.tot <- AG.dat[bos.aoi30m>800 & bos.can.redux30m>=0.85, quantile(pix.med/2000/bos.aoi30m*1E4, probs=c(quants[i]),na.rm=T)]
+  ratio.tot <- AG.dat[bos.aoi30m>800 & bos.can.redux30m>=0.85, quantile(AGWI.vs.AGtot, probs=c(quants[i]),na.rm=T)]
+  
+  tmp <- merge(biom.med, totNPP.med, by="bos.lulc30m.lumped")
+  tmp <- merge(tmp, AGNPP.med, by="bos.lulc30m.lumped")
+  tmp <- merge(tmp, ratio.med, by="bos.lulc30m.lumped")
+  tmp <- data.frame(tmp)
+  tmp <- rbind(tmp, c(7, biom.tot, totNPP.tot, AGNPP.tot, ratio.tot))
+  holdem[[i]] <- tmp
+  if(i==3){
+    npp.fin <- cbind(npp.fin,
+                     nicely(holdem[[2]][[2]],
+                            holdem[[1]][[2]],
+                            holdem[[3]][[2]]
+                     ))
+    npp.fin <- cbind(npp.fin,
+                     nicely(holdem[[2]][[3]],
+                            holdem[[1]][[3]],
+                            holdem[[3]][[3]]
+                     ))
+    npp.fin <- cbind(npp.fin,
+                     nicely(holdem[[2]][[4]],
+                            holdem[[1]][[4]],
+                            holdem[[3]][[4]]
+                     ))
+    npp.fin <- cbind(npp.fin,
+                     nicely2(holdem[[2]][[5]],
+                             holdem[[1]][[5]],
+                             holdem[[3]][[5]]
+                     ))
+    colnames(npp.fin) <- c("LULC", "biomass", "TotalNPP", "AGWI", "AGWIvsAGTotal")
+  }
+}
+
+#####
+
+
+
 ##
 ### Figure 1: Pixel median spreads
 #####
@@ -129,8 +289,14 @@ bdat.fin[,lulc:=factor(bos.lulc30m.lumped, levels=c(2,5,3,4,1), ordered=T)]
 bdat.fin[,pix.med.MgC.ha:=pix.med/bos.aoi30m*1E4/1000]
 
 lulc.pal <- viridis(6)
-plot(c(2,5,3,4,1,6), pch=15, col=lulc.pal)
+
+plot(c(1,2,3,4,5,6), pch=15, col=lulc.pal)
+lulc.pal.ordered <- c(lulc.pal[5], lulc.pal[2], lulc.pal[3], lulc.pal[4], lulc.pal[6], lulc.pal[1])
+plot(c(1,2,3,4,5,6), pch=15, col=lulc.pal.ordered)
+
+
 lulc.pal <- c(lulc.pal[2],lulc.pal[6], lulc.pal[3],lulc.pal[4],lulc.pal[5])
+plot(c(2,5,3,4,1,6), pch=15, col=lulc.pal)
 
 bplots.pixmed <- ggplot(bdat.fin, aes(x=lulc, y=pix.med.MgC.ha))+
   geom_hline(yintercept=0, linetype=2, color="gray55", size=1)+
@@ -159,10 +325,102 @@ bplots.pixmed <- ggplot(bdat.fin, aes(x=lulc, y=pix.med.MgC.ha))+
   scale_x_discrete(labels=c("Developed", "Other Veg.", "HD Resid.", "LD Resid.", "Forest"))
 
 bplots.pixmed
-png(width=4, height=4, units="in", res=600, bg="white", filename="images/Fig1_pixelNEE.png")
+png(width=7, height=7, units="in", res=600, bg="white", filename="images/Fig1_pixelNEE.png")
 bplots.pixmed
 dev.off()
+
+##
+### perhaps an inset pie chart of relative land cover area
+lulc.labs <- c("Forest", "Developed", "HD Resid.", "LD Resid.", "Other Veg.","Water")
+lulc.areas <- biog[bos.aoi30m>800 & !is.na(bos.lulc30m.lumped), sum(bos.aoi30m), by=bos.lulc30m.lumped]
+lulc.areas <- lulc.areas[order(bos.lulc30m.lumped),]
+lulc.pal <- viridis(6)
+lulc.pal.ordered <- c(lulc.pal[5], lulc.pal[2], lulc.pal[3], lulc.pal[4], lulc.pal[6], lulc.pal[1])
+
+png(width=8, height=6, units="in", res=600, bg="white", filename="images/Fig1INSET_areapie.png")
+pie(lulc.areas$V1, labels=lulc.labs, col=lulc.pal.ordered, cex=2)
+dev.off()
+
 #####
+
+
+##
+### Figure 2: Panel of pixel median vs. EVI w GAM fits
+#####
+library(raster)
+evi <- raster("H:/FragEVI/processed/EVI/030005-6_2010-2012_EVI.tif")
+aoi <- raster("processed/bos.aoi230m.tif")
+evi <- projectRaster(from=evi, to = aoi, method="bilinear")
+evi <- crop(evi, aoi)
+biog <- fread(file="processed/results/NEE.V2.csv")
+biog[,evi:=getValues(evi)]
+
+library(viridis)
+lulc.pal <- viridis(6)
+lulc.pal <- c(lulc.pal[5],lulc.pal[2],lulc.pal[3],lulc.pal[4],lulc.pal[6],lulc.pal[1])
+library(data.table)
+library(ggplot2)
+library(mgcv)
+lulc.pal[5] <- "#EFD701FF"
+
+lulc.pal.high <- c("#D1EFC3FF", "#B3B5DBFF", "#85C8DBFF", "#88E7CEFF", "#FFF8BDFF")
+lulc.names <- c("Forest", "Developed", "HD Resid.", "LD Resid.", "Other Veg.")
+
+title.size <- 12
+axis.marks <- 9
+axis.titles <- 10
+pt.size <- 0.7
+theme.master <-   theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+                        panel.background = element_blank(), axis.line = element_line(colour = "black"),
+                        axis.title.x = element_text(face="bold", size=axis.titles),
+                        axis.title.y = element_text(face="bold", size=axis.titles),
+                        axis.text.x = element_text(face="plain", size=axis.marks),
+                        axis.text.y = element_text(face="plain", size=axis.marks),
+                        plot.title = element_text(face="bold", size=title.size))
+
+for(l in 1:5){
+  thing.gam <- gam(nee.med.MgC.ha.yr~s(evi, bs="cr"), 
+                   data=biog[bos.aoi30m>800 & bos.lulc30m.lumped==l,], se.fit=T)
+  print(summary(thing.gam))
+  pred.dat <- data.frame(evi=seq(0, 0.85, length.out=1000),
+                         bos.lulc30m.lumped=rep(l, 1000))
+  dur <- predict(thing.gam, pred.dat, type="response")
+  pred.dat$pred.nee <- dur
+  assign(
+    value=ggplot(biog[bos.aoi30m>800 & bos.lulc30m.lumped==l,], aes(evi, nee.med.MgC.ha.yr))+
+      geom_hex(bins=40)+
+      scale_fill_gradient(low=lulc.pal[l], high=lulc.pal.high[l])+
+      geom_line(data=pred.dat, aes(x=evi, y=pred.nee), size=1.3, color="red")+
+      geom_hline(yintercept=0, linetype="dashed", size=1.0, color="grey20")+
+      lims(x=c(-0.02, 0.85), y=c(-7.5, 7.5))+
+      theme.master+
+      labs(x = "Median pixel EVI", y="NEE (MgC/ha/yr)", title=paste(lulc.names[l]))+
+      guides(fill=FALSE), 
+    x=paste0("ggplot.", l)
+    )
+}
+
+ggplot.1
+ggplot.2
+ggplot.3
+ggplot.4
+ggplot.5
+
+nee.hist <- ggplot(biog[bos.aoi30m>800 & !is.na(bos.lulc30m.lumped),], aes(x=nee.med.MgC.ha.yr))+
+              geom_histogram(bins=100)+
+              theme.master+
+              labs(x = "Median pixel NEE (MgC/ha/yr)", y="")+
+              guides(fill=FALSE)
+
+library(gridExtra)
+png(width=6, height=9, units="in", res=600, bg="white", filename="images/Fig2_EVIscatter_panel.png")
+grid.arrange(ggplot.1, ggplot.2,
+             ggplot.3, ggplot.4,
+             ggplot.5, nee.hist, ncol=2)
+dev.off()
+#####
+
+
 
 ## some analysis
 
@@ -230,6 +488,8 @@ library(mgcv)
 ## fit a cubic smooth spline with error to each grouping, get the integrated GS total C flux
 isa.mod <- gam(nee.med.MgC.ha.yr~s(bos.isa30m, bs="cr", by=bos.lulc30m.lumped), 
                data=biog[bos.aoi30m>800,], se.fit=T)
+isa.mod2 <- gam(nee.med.MgC.ha.yr~s(bos.isa30m, bs="cr"), 
+                data=biog[bos.aoi30m>800,], se.fit=T)
 biom.mod <- gam(nee.med.MgC.ha.yr~s(bos.biom30m, bs="cr", by=bos.lulc30m.lumped), 
                 data=biog[bos.aoi30m>800,], se.fit=T)
 can.mod <- gam(nee.med.MgC.ha.yr~s(bos.can.redux30m, bs="cr", by=bos.lulc30m.lumped), 
@@ -263,8 +523,8 @@ for(m in 1:length(mods)){
   lines(dd[lulc==6, var], dd[lulc==6, fit], col="purple", lwd=4)
   abline(h=0, col="black", lwd=3, lty=2)
 }
-hist(biog[bos.aoi30m>800, bos.isa30m]) ## most pixels are near 100% paved
-hist(biog[bos.aoi30m>800, nee.med]) ## most pixels are very near 0
+summary(biog[bos.aoi30m>800, bos.isa30m]) ## most pixels are near 100% paved
+summary(biog[bos.aoi30m>800, nee.med]) ## most pixels are very near 0
 dim(biog[bos.aoi30m>800 & nee.med==0,]) ## ~23k are literally 0
 dim(biog[bos.aoi30m>800 & abs(nee.med.MgC.ha.yr)<0.2,]) ## 44.8k are very nearly 0, so predicting almost 0 is a good idea
 hist(biog[bos.aoi30m>800, bos.grass30m]) ## most stuff is below 22% grass cover, grass GAM is lame

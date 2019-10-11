@@ -275,13 +275,72 @@ plot(biog[bos.aoi30m>800 & bos.isa30m<=0.95, bos.biom30m],
 
 
 ## what does NEE look like against landsat EVI?
+library(raster)
+library(viridis)
 evi <- raster("H:/FragEVI/processed/EVI/030005-6_2010-2012_EVI.tif")
 aoi <- raster("processed/bos.aoi230m.tif")
 evi <- projectRaster(from=evi, to = aoi, method="bilinear")
 evi <- crop(evi, aoi)
 biog[,evi:=getValues(evi)]
 
+## shall we GAM?
+evi.mod <- gam(nee.med.MgC.ha.yr~s(evi, bs="cr", by=bos.lulc30m.lumped), 
+               data=biog[bos.aoi30m>800,], se.fit=T)
+summary(evi.mod)
+
+### get predicted lines here and put them on each panel
+
+## plot it up using our color scheme
+lulc.pal <- viridis(6)
+lulc.pal.ordered <- c(lulc.pal[5], lulc.pal[2], lulc.pal[3], lulc.pal[4], lulc.pal[6], lulc.pal[1])
+
 plot(biog[bos.aoi30m>800, evi],
      biog[bos.aoi30m>800 , nee.med],
-     col=biog[bos.aoi30m>800, bos.lulc30m.lumped])
+     col=lulc.pal.ordered[biog[bos.aoi30m>800, bos.lulc30m.lumped]], pch=15, cex=0.3)
+lulc.key <- c("Forest", "Dev", "HDRes", "LDRes", "OVeg", "Water")
 
+for(i in 1:5){
+        plot(biog[bos.aoi30m>800 & bos.lulc30m.lumped==i, evi],
+             biog[bos.aoi30m>800 & bos.lulc30m.lumped==i , nee.med],
+             col=lulc.pal.ordered[biog[bos.aoi30m>800 & bos.lulc30m.lumped==i, bos.lulc30m.lumped]],
+             pch=15, cex=0.3, xlim=c(-0.07, 0.8), ylim=c(-1000, 1000),
+             main=paste(lulc.key[i]))
+        abline(h=0, lty=2, lwd=2)
+}
+
+library(ggplot2)
+ggplot(biog[bos.aoi30m>800,], aes(evi, nee.med))+
+        geom_hex(binwidth=c(0.01, 50))
+
+ggplot(biog[bos.aoi30m>800,], aes(evi, nee.med))+
+        geom_hex(bins=40)
+
+
+### a test plot for forest alone
+
+plot(biog[bos.aoi30m>800 & bos.lulc30m.lumped==1,evi],
+     biog[bos.aoi30m>800 & bos.lulc30m.lumped==1,nee.med.MgC.ha.yr], col="green", pch=15)
+points(pred.dat$evi, dur, lty=1)
+
+pd <- plot(evi.mod)
+
+
+
+
+ggplot(biog[bos.aoi30m>800 & bos.lulc30m.lumped==2,], aes(evi, nee.med))+
+        geom_hex(bins=40)
+ggplot(biog[bos.aoi30m>800 & bos.lulc30m.lumped==3,], aes(evi, nee.med))+
+        geom_hex(bins=40)
+ggplot(biog[bos.aoi30m>800 & bos.lulc30m.lumped==4,], aes(evi, nee.med))+
+        geom_hex(bins=40)
+ggplot(biog[bos.aoi30m>800 & bos.lulc30m.lumped==5,], aes(evi, nee.med))+
+        geom_hex(bins=40)
+
+
+ggplot(biog[bos.aoi30m>800 & bos.lulc30m.lumped==1,], aes(evi, nee.med))+
+        geom_point()+
+        geom_density2d(bins=40)
+
+ggplot(biog[bos.aoi30m>800 & bos.lulc30m.lumped==1,], aes(evi, nee.med))+
+        stat_density_2d(bins=40, aes(fill=..level..), geom="polygon")+
+        geom_point()

@@ -23,6 +23,13 @@ print("cellsizex="+str(cs))
 ### Forest
 # arcpy.gp.Aggregate_sa("H:/BosBiog/processed/bos.cov.V7.Forest.perv.tif", "H:/BosBiog/processed/bos.cov.Forest.perv30m.tif", "30", "SUM", "EXPAND", "DATA")
 # print("finished cov.Forest.perv 30m")
+arcpy.gp.Aggregate_sa("H:/BosBiog/processed/bos.cov.V7.5.Forest.grass.tif", "H:/BosBiog/processed/bos.cov.Forest.grass30m.tif", "30", "SUM", "EXPAND", "DATA")
+print("finished cov.Forest.grass 30m")
+arcpy.gp.Aggregate_sa("H:/BosBiog/processed/bos.cov.V7.5.Forest.barr.tif", "H:/BosBiog/processed/bos.cov.Forest.barr30m.tif", "30", "SUM", "EXPAND", "DATA")
+print("finished cov.Forest.barr 30m")
+arcpy.gp.Aggregate_sa("H:/BosBiog/processed/bos.cov.V7.5.Forest.canPerv.tif", "H:/BosBiog/processed/bos.cov.Forest.canPerv30m.tif", "30", "SUM", "EXPAND", "DATA")
+print("finished cov.Forest.canPerv 30m")
+
 
 ### Dev
 # arcpy.gp.Aggregate_sa("H:/BosBiog/processed/bos.cov.V7.Dev.grass.tif", "H:/BosBiog/processed/bos.cov.Dev.grass30m.tif", "30", "SUM", "EXPAND", "DATA")
@@ -75,11 +82,11 @@ print("cellsizex="+str(cs))
 # print("finished lulc.lumped 30m")
 
 # grass, total
-arcpy.gp.Aggregate_sa("H:/BosBiog/processed/bos.turfgrass.tif", "H:/BosBiog/processed/bos.turfgrass30m.tif", "30", "SUM", "EXPAND", "DATA")
-print("finished turf grass 30m")
+##arcpy.gp.Aggregate_sa("H:/BosBiog/processed/bos.turfgrass.tif", "H:/BosBiog/processed/bos.turfgrass30m.tif", "30", "SUM", "EXPAND", "DATA")
+##print("finished turf grass 30m")
 
 # golf grass
-arcpy.gp.Aggregate_sa("H:/BosBiog/processed/bos.golfgrass.tif", "H:/BosBiog/processed/bos.golfgrass30m.tif", "30", "SUM", "EXPAND", "DATA")
-print("finished golf grass 30m")
+##arcpy.gp.Aggregate_sa("H:/BosBiog/processed/bos.golfgrass.tif", "H:/BosBiog/processed/bos.golfgrass30m.tif", "30", "SUM", "EXPAND", "DATA")
+##print("finished golf grass 30m")
 
 

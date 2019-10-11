@@ -175,7 +175,6 @@ library(zoo)
 ###
 ### Create cover character classification based on can, isa, ndvi, lulc
 #####
-
 ### Step 0: resample the raw 2.4m Quickbird NDVI from Raciti to the 1m canopy grid
 ### (must be performed on desktop): put NDVI.img through Arc and resample+snap to grid for 1m canopy map - be sure the end product is NAD83 UTM19N
 # pyth.path = 'F:/FragEVI/Rscripts/NDVI_resamp.py'
@@ -272,10 +271,9 @@ plot(miss.test) ## we didn't miss anything in V7
 ## note re water: We won't be able to tell barren vs. open water, only detect canopy and grass; just treat anything with LULC label "water" as open water, no ground cover
 ## note re Forest: We are not modeling anything fancy in forest, will treat all of it as 
 flag.n.bag <- function(cov, lulc, aoi, filename.flag) { ## give filename.flag as the generic path-- this will create multiple rasters
-  ### do forest first
-  print(paste("working on Forest and water pervious"))
-  lulc.names <- c("Forest", "water")
-  lulc.codes <- c(1,6)
+  print(paste("working on water pervious"))
+  lulc.names <- c("water")
+  lulc.codes <- c(6)
   for(a in 1:length(lulc.names)){
     out <- raster(cov)
     bs <- blockSize(out)
@@ -298,8 +296,9 @@ flag.n.bag <- function(cov, lulc, aoi, filename.flag) { ## give filename.flag as
   }
 
   ## now do subclasses of the rest
-  lulc.names <- c("Dev", "HDRes", "LDRes", "OVeg")
-  lulc.codes <- c(2,3,4,5)
+  lulc.names <- c("Forest", "Dev", "HDRes", "LDRes", "OVeg")
+  # lulc.codes <- c(1,2,3,4,5)
+  lulc.codes <- c(1)
   cov.names <- c("grass", "barr", "canPerv")
   cov.codes <- c(2,3,6)
   for(a in 1:length(lulc.names)){ ## loop each LULC in turn
@@ -332,7 +331,7 @@ bos.lulc <- raster("processed/bos.lulc.lumped.tif")
 bos.aoi <- raster("processed/bos.aoi2.tif")
 bos.cov <- raster("processed/bos.cov.V7-canisa+lulc.tif")
 
-flag.n.bag(bos.cov, bos.lulc, bos.aoi, "processed/bos.cov.V7")
+flag.n.bag(bos.cov, bos.lulc, bos.aoi, "processed/bos.cov.V7.5")
 
 ### this flags anything with lulc = water
 flag.water <- function(cov, lulc, aoi, filename.flag) { ## give filename.flag as the generic path-- this will create multiple rasters
@@ -365,11 +364,14 @@ bos.lulc <- raster("processed/bos.lulc.lumped.tif")
 bos.aoi <- raster("processed/bos.aoi2.tif")
 bos.cov <- raster("processed/bos.cov.V7-canisa+lulc.tif")
 flag.water(bos.cov, bos.lulc, bos.aoi, "processed/bos.cov.V7")
-
 ### honestly the V7 map looks good -- alignment to aerial photo and features vs. ISA looks good, coverage looks exhaustive and non-overlapping
+### this all has to be run through the arcpy aggregation script to get the 30 m values
+
+#####
 
 ###
 ## flag grass categories at 1m (=cover class "Z2")
+#####
 # bos.lulc <- raster("processed/bos.lulc.lumped.tif")
 bos.aoi <- raster("processed/bos.aoi2.tif")
 bos.cov <- raster("processed/bos.cov.V7-canisa+lulc.tif")
@@ -538,6 +540,7 @@ write.csv(cov.sum, "processed/results/perv.cover.summary.V1.csv")
 
 ##
 ### rerun the lulc polys to get a 30m majority area class for the LULC lumped categories
+#####
 ## fun catch! You can't do this with the 1m lumped raster -- you need to manually lump the polygons! FUCK YEAHHHH!!!
 # lulc <- readOGR("data/LULC/LU_polys_NAD83UTM19N/LU_polys_BOSTON.shp")
 # ## create a new field to lump the polygons with
@@ -562,6 +565,7 @@ write.csv(cov.sum, "processed/results/perv.cover.summary.V1.csv")
 # lulc@data$LU_LUMP <- as.integer(lulc@data$LU_LUMP)
 # plot(lulc, col=lulc@data$LU_LUMP, border=NA) # throwin hunids, hunids
 # writeOGR(obj = lulc, dsn = "data/LULC/LU_polys_NAD83UTM19N/LU_polys_BOSTON_lump.shp", layer = "LU_polys_BOSTON_lump.shp", driver = "ESRI Shapefile", overwrite_layer = TRUE)
+
 ### Now just run bos1m_agg.py in H:/BosBiog/Rscripts, my dude. It's all set up.
 # ## now groom the file
 # test <- raster("processed/bos.lulc.lumped30m.tif")
@@ -570,6 +574,8 @@ write.csv(cov.sum, "processed/results/perv.cover.summary.V1.csv")
 # test <- crop(test, bos.aoi)
 # test <- mask(test, bos.aoi)
 # writeRaster(test, "processed/bos.lulc.lumped30m.tif", overwrite=T, format="GTiff")
+#####
+
 #####
 
 ##
@@ -585,7 +591,7 @@ bos.lulc <- raster("H:/BosBiog/processed/bos.lulc.lumped30m.tif")
 
 soilR.dat <- as.data.table(as.data.frame(bos.aoi))
 soilR.dat[,isa:=getValues(bos.isa)]
-# soilR.dat[,isa:=isa*bos.aoi30m] ## everything is now in m2 of stuff per pixel (0-900)
+# soilR.dat[,isa:=isa*bos.aoi30m] ## everything is now in m2 of cover per pixel (0-900)
 # hist(soilR.dat[,isa]) ## ok
 soilR.dat[,lulc.lump:=getValues(bos.lulc)]
 
@@ -601,7 +607,7 @@ for(g in 1:length(cov.files)){
   soilR.dat <- cbind(soilR.dat, getValues(raster(paste0("processed/", cov.files[g]))))
 }
 names(soilR.dat) <- c("aoi", "isa", "lulc.lump", cov.labs)
-
+fwrite(soilR.dat, file="processed/soilR.cov.fracs.csv")
 ###
 ## test to see if the data integrity is good
 sum.na <- function(x){sum(x, na.rm=T)}
