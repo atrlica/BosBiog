@@ -7,12 +7,12 @@ library(raster)
 library(data.table)
 library(qdapRegex)
 library(zoo)
-setwd("/projectnb/buultra/atrlica/BosBiog/")
+# setwd("/projectnb/buultra/atrlica/BosBiog/")
 ### read in results 
 tree <- fread("processed/results/hybrid.TOTAL.results.V8.csv")
 # fwrite(AG.dat, file = "processed/results/hybrid.AG.results.V8.csv")
-grass <- fread("processed/results/grassNPP.results.V1.csv")
-soil <- fread("processed/soilR.results.V2.csv")
+grass <- fread("processed/results/grassNPP.results.V2.csv")
+soil <- fread("processed/results/soilR.results.V3.csv")
 
 ## recall: grass V1 is a static (no error) uptake assumption in kgC/m2/yr
 ## hybrid V8 is the combined Andy forest V7 and street tree sim V7 that includes root+AG+foliage
@@ -26,7 +26,7 @@ sum.na <- function(x){sum(x, na.rm=T)}
 med.na <- function(x){median(x, na.rm=T)}
 
 ## make sure everything is ordered
-grass <- grass[order(pixID),]
+grass <- grass[order(pix.ID),]
 tree <- tree[order(pix.ID),]
 tree[,25:1024] <- tree[,25:1024]/2 # careful, trees are in kgBIOMASS on import
 soil <- soil[order(pix.ID),]
@@ -344,3 +344,25 @@ ggplot(biog[bos.aoi30m>800 & bos.lulc30m.lumped==1,], aes(evi, nee.med))+
 ggplot(biog[bos.aoi30m>800 & bos.lulc30m.lumped==1,], aes(evi, nee.med))+
         stat_density_2d(bins=40, aes(fill=..level..), geom="polygon")+
         geom_point()
+
+
+
+
+### ACES ANNUAL EMISSIONS FOR BOSTON
+library(raster)
+library(rgdal)
+library(data.table)
+c <- raster("data/ACES/ACES_kgC_2011_TOTAL.tif")
+towns <- readOGR("data/towns/AOI_BOS_NOISLAND.shp")
+cr <- projectRaster(c, crs=crs(towns))
+crc <- crop(cr, towns)
+plot(crc)
+plot(towns, add=T)
+crc.dat <- extract(crc, towns)
+crc.dat <- as.data.table(data.frame(eff=unlist(crc.dat)))
+summary(crc.dat$eff)
+crc.dat[,eff.MgC:=eff/1000]
+## max according to metadata is 4420E06 kgC = 4.42 E03 MgC
+hist(crc.dat$eff.MgC) ### we are up to 120k, ok these look valid-ish
+sum(crc.dat$eff.MgC, na.rm=T)/1E3 ## 1289 GgC/yr
+                         

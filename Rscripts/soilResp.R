@@ -584,34 +584,36 @@ write.csv(cov.sum, "processed/results/perv.cover.summary.V1.csv")
 library(raster)
 library(data.table)
 library(qdapRegex)
-bos.aoi <- raster("H:/BosBiog/processed/bos.aoi230m.tif")
-bos.isa <- raster("H:/BosBiog/processed/bos.isa30m.tif") ## this is reprocessed from the RR2 1m file that was reregistered to road centerlines
-bos.lulc <- raster("H:/BosBiog/processed/bos.lulc.lumped30m.tif")
-# bos.lulc <- mask(crop(bos.lulc, bos.aoi), bos.aoi, filename="processed/bos.lulc.lumped30m.tif", overwrite=T, format="GTiff")
-
-soilR.dat <- as.data.table(as.data.frame(bos.aoi))
-soilR.dat[,isa:=getValues(bos.isa)]
-# soilR.dat[,isa:=isa*bos.aoi30m] ## everything is now in m2 of cover per pixel (0-900)
-# hist(soilR.dat[,isa]) ## ok
-soilR.dat[,lulc.lump:=getValues(bos.lulc)]
+# bos.aoi <- raster("H:/BosBiog/processed/bos.aoi230m.tif")
+# bos.isa <- raster("H:/BosBiog/processed/bos.isa30m.tif") ## this is reprocessed from the RR2 1m file that was reregistered to road centerlines
+# bos.lulc <- raster("H:/BosBiog/processed/bos.lulc.lumped30m.tif")
+# # bos.lulc <- mask(crop(bos.lulc, bos.aoi), bos.aoi, filename="processed/bos.lulc.lumped30m.tif", overwrite=T, format="GTiff")
+# 
+# soilR.dat <- as.data.table(as.data.frame(bos.aoi))
+# soilR.dat[,isa:=getValues(bos.isa)]
+# # soilR.dat[,isa:=isa*bos.aoi30m] ## everything is now in m2 of cover per pixel (0-900)
+# # hist(soilR.dat[,isa]) ## ok
+# soilR.dat[,lulc.lump:=getValues(bos.lulc)]
 
 ## load up the 30m cover files and append
-cov.files <- list.files("processed/")
-cov.files <- cov.files[grep(cov.files, pattern = "bos.cov.")]
-cov.files <- cov.files[grep(cov.files, pattern = ".tif")]
-cov.files <- cov.files[grep(cov.files, pattern = "30m")]
-cov.files <- cov.files[!grepl(cov.files, pattern = ".tif.")]
-cov.labs <- unlist(rm_between(cov.files, ".cov.", "30m.tif", extract=T))
-# cov.labs <- sub(cov.labs,pattern = "-", replacement = ".")
-for(g in 1:length(cov.files)){
-  soilR.dat <- cbind(soilR.dat, getValues(raster(paste0("processed/", cov.files[g]))))
-}
-names(soilR.dat) <- c("aoi", "isa", "lulc.lump", cov.labs)
-fwrite(soilR.dat, file="processed/soilR.cov.fracs.csv")
+soilR.dat <- fread("processed/soilR.cov.fracs.csv")
+# cov.files <- list.files("processed/")
+# cov.files <- cov.files[grep(cov.files, pattern = "bos.cov.")]
+# cov.files <- cov.files[grep(cov.files, pattern = ".tif")]
+# cov.files <- cov.files[grep(cov.files, pattern = "30m")]
+# cov.files <- cov.files[!grepl(cov.files, pattern = ".tif.")]
+# cov.labs <- unlist(rm_between(cov.files, ".cov.", "30m.tif", extract=T))
+# # cov.labs <- sub(cov.labs,pattern = "-", replacement = ".")
+# for(g in 1:length(cov.files)){
+#   soilR.dat <- cbind(soilR.dat, getValues(raster(paste0("processed/", cov.files[g]))))
+# }
+# names(soilR.dat) <- c("aoi", "isa", "lulc.lump", cov.labs)
+# fwrite(soilR.dat, file="processed/soilR.cov.fracs.csv")
+
 ###
 ## test to see if the data integrity is good
-sum.na <- function(x){sum(x, na.rm=T)}
-soilR.dat[,pix.TotArea:=apply(soilR.dat[,c(2, 4:18)], MARGIN = 1, FUN=sum.na)]
+# sum.na <- function(x){sum(x, na.rm=T)}
+# soilR.dat[,pix.TotArea:=apply(soilR.dat[,c(2, 4:18)], MARGIN = 1, FUN=sum.na)]
 # summary(soilR.dat$pix.TotArea); hist(soilR.dat$pix.TotArea) ## ok this at least gives us what looks like something
 # soilR.dat[aoi>800,]
 # soilR.dat[pix.TotArea>800,] ## slightly fewer full cover pixels than the full aoi pixels
@@ -685,11 +687,13 @@ soilR.dat[,pix.TotArea:=apply(soilR.dat[,c(2, 4:18)], MARGIN = 1, FUN=sum.na)]
 # therefore the only thing you could possibly model separately would be the water*grass category (*shrug*)
 
 ###
-### static soilR factors
-forest.soilR.GS <- (2.62/1E6)*44.01*1E-3*(12/44.01)*60*60*24*(310-134) ## rate umolCO2/m2/s --> in kgC/m2/year (growing season, DOY138-DOY307)
-grass.soilR.GS <- (4.49/1E6)*44.01*1E-3*(12/44.01)*60*60*24*(310-134)
-ls.soilR.GS <- (6.73/1E6)*44.01*1E-3*(12/44.01)*60*60*24*(310-134)
-
+### static factors (single realization)
+#####
+# ### static soilR factors
+# forest.soilR.GS <- (2.62/1E6)*44.01*1E-3*(12/44.01)*60*60*24*(310-134) ## rate umolCO2/m2/s --> in kgC/m2/year (growing season, DOY138-DOY307)
+# grass.soilR.GS <- (4.49/1E6)*44.01*1E-3*(12/44.01)*60*60*24*(310-134)
+# ls.soilR.GS <- (6.73/1E6)*44.01*1E-3*(12/44.01)*60*60*24*(310-134)
+# 
 # ### are these factors correct?
 # (2.62/1E6)*44.01/1000 ## kgCO2/m2.s 1.15E-7
 # ((2.62/1E6)*44.01/1000)*(12/44.01) ## kgC/m2.s 3.14E-8
@@ -705,8 +709,6 @@ ls.soilR.GS <- (6.73/1E6)*44.01*1E-3*(12/44.01)*60*60*24*(310-134)
 # ## to put it another way, the highest aboveground woody NPP we modeled was 3.1 MgC/ha/yr
 # 3.1*1000*1000*(44.01/12)*(1/44.01)*1E6*1E-4/60/60/24/(307-138) ## 1.77 umolCO2/m2/yr :-| ok so the tree woody biomass increment doesn't keep pace with the soilR 
 
-### static factors (single realization)
-#####
 # ## Forest
 # soilR.dat[,soilR.Forest.tot:=(Forest.perv*forest.soilR.GS)]
 # hist(soilR.dat$soilR.Forest.tot)
@@ -871,6 +873,11 @@ ls.soilR.GS <- (6.73/1E6)*44.01*1E-3*(12/44.01)*60*60*24*(310-134)
 
 
 ## upgrade: Figure out the factors to growing season facrors to use if we integrate under the GAM curve of each land type
+#### static soilR factors
+forest.soilR.GS <- (2.62/1E6)*44.01*1E-3*(12/44.01)*60*60*24*(310-134) ## rate umolCO2/m2/s --> in kgC/m2/year (growing season, DOY138-DOY307)
+grass.soilR.GS <- (4.49/1E6)*44.01*1E-3*(12/44.01)*60*60*24*(310-134)
+ls.soilR.GS <- (6.73/1E6)*44.01*1E-3*(12/44.01)*60*60*24*(310-134)
+
 steve <- read.csv("data/soil/Decina_C_metadata_measurements/all.fluxes.csv")
 # treat <- read.csv("data/soil/Decina_C_metadata_measurements/2014_BosNut_SRCollars_means.csv")
 # treat2 <- read.csv("data/soil/Decina_C_metadata_measurements/2014_BosNut_SRCollars.csv")
@@ -879,14 +886,16 @@ steve <- read.csv("data/soil/Decina_C_metadata_measurements/all.fluxes.csv")
 # length(unique(steve$collar)) ## flux data has 56 collars
 treat <- read.csv("data/soil/Decina_C_metadata_measurements/2014_BosNut_SRCollars.csv")
 resp <- merge(steve, treat[,c(1:12)], by.x="collar", by.y="Collar", all.x=T, all.y=F)
-dim(resp); unique(resp$Category); unique(resp$Location)
-plot(resp$DOY, resp$umol.m2.s, col=as.numeric(as.factor(resp$Location)))
+# dim(resp); unique(resp$Category); unique(resp$Location)
+# plot(resp$DOY, resp$umol.m2.s, col=as.numeric(as.factor(resp$Location)))
 resp <- as.data.table(resp)
-resp[,mean(umol.m2.s, na.rm=T), by=Location] ## these are v close to the season avgs. Lawn/Other/Forest reported in Decina
-resp[is.na(Location), unique(collar)] ## we have context categories for every collar data
-library(mgcv)
-resp[,range(DOY, na.rm=T)] ##DOY 134 to 309
+# resp[,mean(umol.m2.s, na.rm=T), by=Location] ## these are v close to the season avgs. Lawn/Other/Forest reported in Decina
+# resp[is.na(Location), unique(collar)] ## we have context categories for every collar data
+# resp[,range(DOY, na.rm=T)] ##DOY 134 to 309
+
+
 ## fit a cubic smooth spline with error to each grouping, get the integrated GS total C flux
+library(mgcv)
 d.x <- data.frame(DOY=seq(134, 310, length.out=1000)) ## DOY 310 to get us through the whole GS measured
 days <- 309-134+1 ## how many GS days are we talking here?
 flux.hold <- seq(1:1000)
@@ -923,10 +932,13 @@ for(jj in c("Lawn", "Other", "Forest")){
   flux.hold <- cbind(flux.hold, int)
 }
 colnames(flux.hold) <- c("sample.num", "Lawn.GStotal", "Other.GStotal", "Forest.GStotal")
-par(mfrow=c(1,3)); hist(flux.hold[,2]); hist(flux.hold[,3]); hist(flux.hold[,4])
-mean(flux.hold[,2]) ## 0.840, contrast season avg. 0.819
-mean(flux.hold[,3]) ## 1.239, contrast season avg. 1.228
-mean(flux.hold[,4]) ## 0.472, contrast season avg. 0.478
+# par(mfrow=c(1,3)); hist(flux.hold[,2]); hist(flux.hold[,3]); hist(flux.hold[,4])
+# mean(flux.hold[,2]) ## 0.840, contrast season avg. 0.819
+# mean(flux.hold[,3]) ## 1.239, contrast season avg. 1.228
+# mean(flux.hold[,4]) ## 0.472, contrast season avg. 0.478
+
+### a thought: On V4 you might try to look at the full variability of the empirical flux rates rather than the variability of your model fit of the flux rates...
+### or: What did Decina report re. variability in season-wide averages?
 
 ### get distribution of summed annual factors for each soil context
 samp1 <- sample(1:1000, size=1000, replace=F)
@@ -936,35 +948,54 @@ ls.soilR.GS.rand <- flux.hold[samp1,3]
 grass.soilR.GS.rand <- flux.hold[samp2,2]
 forest.soilR.GS.rand <- flux.hold[samp3,4]
 
+### now build in sensitivity to how we apply the soilR factors
+### here's the logic: 
+## 1) Barren cover is either assigned a 0 (barren) or landscaped soilR factor
+##  1b) this can vary depending on the LULC class (Developed vs. Residential vs. O.veg)
+D.barr.gets.barr <- c(rep(0.50, 100), rep(0.75, 250), rep(1, 700)) ## in developed, how much barren fraction do we apply 0 SoilR to?
+R.barr.gets.barr <- c(rep(0, 800), rep(0.25, 200), rep(0.5, 50)) ## same barren fuzziness in Resid, only 
+sub.can.LS <- c(rep(0.5,  800), rep(0.25, 100), rep(0.75, 100)) ## how much of the sub-canopy area do we treat as Landscaped or as Lawn
+hist(D.barr.gets.barr) ### most Dev-barren will get 0, but sometimes we will treat it as 25% or up to 50% as landscaped 
+hist(R.barr.gets.barr) ## Most R-barren will get treated like LS, but a small fraction will get up to 50% will get barren
+hist(sub.can.LS) ### most model runs will treat sub-canopy as 50/50 landscape and grass, but will mod it 25/75 or 75/25 sometimes
+
 ### apply these rates to our pixels based on area of each thing
 soilR.results <- copy(soilR.dat)
 soilR.box <- matrix(ncol=1000, nrow=dim(soilR.dat)[1])
 for(k in 1:1000){
-  ## Forest
+  D.barr.frac <- sample(D.barr.gets.barr, 1) ## select a Develeoped.barren factor to apply 
+  R.barr.frac <- sample(R.barr.gets.barr, 1) ## same for Residential.barren
+  sub.can.frac <- sample(sub.can.LS, 1)
+  
+  ## Forest -- all forest gets "forest" soilR factor
   soilR.results[!(is.na(Forest.perv)),soilR.Forest.tot:=(Forest.perv*forest.soilR.GS.rand[k])]
 
   ## Dev
-  soilR.results[!is.na(Dev.barr), soilR.Dev.barr:=(Dev.barr*0)] ## zero
+  soilR.results[!is.na(Dev.barr), soilR.Dev.barr:=(Dev.barr*D.barr.frac*0)+
+                  (Dev.barr*(1-D.barr.frac)*ls.soilR.GS.rand[k])] ## barren area applied with random fraction "barren"-->SR=0 and random fraction "not-barren" -->SR=landscaped
   soilR.results[!is.na(Dev.grass), soilR.Dev.grass:=(Dev.grass*grass.soilR.GS.rand[k])] ## grass
-  soilR.results[!is.na(Dev.canPerv), soilR.Dev.canPerv:=(0.5*Dev.canPerv*ls.soilR.GS.rand[k])+(0.5*Dev.canPerv*grass.soilR.GS.rand[k])]
+  soilR.results[!is.na(Dev.canPerv), soilR.Dev.canPerv:=(sub.can.frac*Dev.canPerv*ls.soilR.GS.rand[k])+((1-sub.can.frac)*Dev.canPerv*grass.soilR.GS.rand[k])] ## divide up the unobserved sub-canopy according to our randomly selected split value
   soilR.results[,soilR.Dev.tot:=sum(soilR.Dev.barr, soilR.Dev.grass, soilR.Dev.canPerv, na.rm=T), by=1:NROW(soilR.results)]
 
   ## HDRes
-  soilR.results[!is.na(HDRes.barr), soilR.HDRes.barr:=(HDRes.barr*ls.soilR.GS.rand[k])]
+  soilR.results[!is.na(HDRes.barr), soilR.HDRes.barr:=(HDRes.barr*R.barr.frac*ls.soilR.GS.rand[k])+
+                  (HDRes.barr*(1-R.barr.frac)*0)]
   soilR.results[!is.na(HDRes.grass), soilR.HDRes.grass:=(HDRes.grass*grass.soilR.GS.rand[k])]
-  soilR.results[!is.na(HDRes.canPerv), soilR.HDRes.canPerv:=(0.5*HDRes.canPerv*ls.soilR.GS.rand[k])+(0.5*HDRes.canPerv*grass.soilR.GS.rand[k])]
+  soilR.results[!is.na(HDRes.canPerv), soilR.HDRes.canPerv:=(sub.can.frac*HDRes.canPerv*ls.soilR.GS.rand[k])+((1-sub.can.frac)*HDRes.canPerv*grass.soilR.GS.rand[k])]
   soilR.results[,soilR.HDRes.tot:=sum(soilR.HDRes.barr, soilR.HDRes.canPerv, soilR.HDRes.grass, na.rm=T), by=1:NROW(soilR.results)]
 
   ## LDRes
-  soilR.results[!is.na(LDRes.barr),soilR.LDRes.barr:=(LDRes.barr*ls.soilR.GS.rand[k])]
+  soilR.results[!is.na(LDRes.barr),soilR.LDRes.barr:=(LDRes.barr*R.barr.frac*ls.soilR.GS.rand[k])+
+                  (LDRes.barr*(1-R.barr.frac)*0)]
   soilR.results[!is.na(LDRes.grass),soilR.LDRes.grass:=(LDRes.grass*grass.soilR.GS.rand[k])]
-  soilR.results[!is.na(LDRes.canPerv),soilR.LDRes.canPerv:=(0.5*LDRes.canPerv*ls.soilR.GS.rand[k])+(0.5*LDRes.canPerv*grass.soilR.GS.rand[k])]
+  soilR.results[!is.na(LDRes.canPerv),soilR.LDRes.canPerv:=(sub.can.frac*LDRes.canPerv*ls.soilR.GS.rand[k])+((1-sub.can.frac)*LDRes.canPerv*grass.soilR.GS.rand[k])]
   soilR.results[,soilR.LDRes.tot:=sum(soilR.LDRes.barr, soilR.LDRes.canPerv, soilR.LDRes.grass, na.rm=T), by=1:NROW(soilR.results)]
 
   ## OVeg
-  soilR.results[!is.na(OVeg.barr),soilR.OVeg.barr:=(OVeg.barr*0)]
+  soilR.results[!is.na(OVeg.barr),soilR.OVeg.barr:=(OVeg.barr*D.barr.frac*0)+
+                  (OVeg.barr*(1-D.barr.frac)*ls.soilR.GS.rand[k])]
   soilR.results[!is.na(OVeg.grass),soilR.OVeg.grass:=(OVeg.grass*grass.soilR.GS.rand[k])]
-  soilR.results[!is.na(OVeg.canPerv),soilR.OVeg.canPerv:=(0.5*OVeg.canPerv*ls.soilR.GS.rand[k])+(0.5*OVeg.canPerv*grass.soilR.GS.rand[k])]
+  soilR.results[!is.na(OVeg.canPerv),soilR.OVeg.canPerv:=(sub.can.frac*OVeg.canPerv*ls.soilR.GS.rand[k])+((1-sub.can.frac)*OVeg.canPerv*grass.soilR.GS.rand[k])]
   soilR.results[,soilR.OVeg.tot:=sum(soilR.OVeg.barr, soilR.OVeg.canPerv, soilR.OVeg.grass, na.rm=T), by=1:NROW(soilR.results)]
 
   ## water
@@ -991,7 +1022,7 @@ soilR.box <- cbind(seq(1:dim(soilR.dat)[1]), soilR.box)
 rm(soilR.results)
 colnames(soilR.box)[1:1001] <- c("pix.ID", paste0("soilR.total.iter.", 1:1000))
 soilR.box.dt <- as.data.table(as.data.frame(soilR.box))
-fwrite(soilR.box.dt, file="processed/results/soilR.results.V2.csv")
+fwrite(soilR.box.dt, file="processed/results/soilR.results.V3.csv")
 rm(soilR.box)
 rm(soilR.box.dt)
 ### Version history of this calcuation:
@@ -1001,11 +1032,19 @@ rm(soilR.box.dt)
 ## random selection of each integrated total in each iteration; 
 ## adjusted GS DOY length to match observation date range in Decina data;
 ## treated marginal grass with lulc "water" as grass for flux purposes
+## V3: applied a randomly selected fractional component for 3 pervious areas
+## 1) Amount of Dev-barren to get 0 vs. Dev-barren to get LS (weighted towards SR=0)
+## 2) Amount of Resid-barren to get LS vs. Resid-barren to get 0 (weighted towards SR=LS)
+## 3) Amount of sub-canopy pervious to assign LS vs. Grass (weighted towards 50/50, but can be 25/75 or 75/25)
 
-res <- fread("processed/results/soilR.results.V2.csv")
+res <- fread("processed/results/soilR.results.V3.csv")
 soilR.dat[,pix.ID:=seq(1, dim(soilR.dat)[1])]
 soilR.dat <- merge(soilR.dat, res, by="pix.ID") ## 1020 columns
 rm(res)
+med.na <- function(x){median(x, na.rm=T)}
+soilR.dat[, pix.med:=apply(soilR.dat[, 23:1022], MARGIN=1, FUN=med.na)]
+soilR.dat[is.na(aoi), pix.med:=NA]
+fwrite(soilR.dat, "processed/results/soilR.results.V3.csv")
 
 ## diagnostics and summaries, erorr distributed results
 tots <- apply(soilR.dat[aoi>800, 21:1020], MARGIN=2, FUN=sum.na)
@@ -1035,14 +1074,12 @@ soilR.sum <- data.frame(cbind(c("Forest", "Dev", "HDRes", "LDRes", "OVeg", "Wate
                               round(map.tots, 2), round(pix.med, 2)))
 colnames(soilR.sum) <- c("LULC", "mean.total.SoilR.GgC", "median.pix.soilR.kgC")
 
-write.csv(soilR.sum, "processed/results/soilR.summary.V2.csv")
+write.csv(soilR.sum, "processed/results/soilR.summary.V3.csv")
 
 
 ## make some tifs
-soilR.dat[, pix.med:=apply(soilR.dat[, 21:1020], MARGIN=1, FUN=med.na)]
-soilR.dat[is.na(aoi), pix.med:=NA]
 hist(soilR.dat[aoi>800, pix.med])
 aa <- raster("H:/BosBiog/processed/bos.aoi230m.tif")
 aa <- setValues(aa, soilR.dat[,pix.med])
-writeRaster(aa, "processed/results/soilR.pixmed.V2.tif", format="GTiff", overwrite=T)
-
+writeRaster(aa, "processed/results/soilR.pixmed.V3.tif", format="GTiff", overwrite=T)
+plot(aa)
