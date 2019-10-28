@@ -204,7 +204,7 @@ library(data.table)
 AG.dat <- fread("processed/results/hybrid.AG.results.V8.csv")
 # AG.dat[,pix.med:=apply(AG.dat[,25:1024], MARGIN=1, FUN = med.na)]
 # fwrite(AG.dat, "processed/results/hybrid.AG.results.V8.csv")
-TOT.dat <- fread("processed/results/hybrid.TOTAL.results.V8.csv")
+# TOT.dat <- fread("processed/results/hybrid.TOTAL.results.V8.csv")
 # TOT.dat[,pix.med:=apply(TOT.dat[,25:1024], MARGIN=1, FUN = med.na)]
 # fwrite(TOT.dat, "processed/results/hybrid.TOTAL.results.V8.csv")
 F.dat <- fread("processed/results/hybrid.F.results.V8.csv")
@@ -214,29 +214,35 @@ F.dat <- fread("processed/results/hybrid.F.results.V8.csv")
 # R.dat[,pix.med:=apply(R.dat[,25:1024], MARGIN=1, FUN = med.na)]
 # fwrite(R.dat, "processed/results/hybrid.R.results.V8.csv")
 
-AG.dat[, Fnpp:=F.dat[,pix.med]]
-AG.dat[, AGWI.vs.AGtot:=pix.med/(pix.med+Fnpp)]
-tot <- AG.dat[,25:1024]+F.dat[,25:1024]
+AG.dat[, Fnpp.pixmed:=F.dat[,pix.med]]
+AG.dat[, AGWI.vs.AGtot:=pix.med/(pix.med+Fnpp.pixmed)]
+AG.dat[, ANPP:=pix.med+Fnpp.pixmed]
+# tot <- AG.dat[,25:1024]+F.dat[,25:1024]
 hist(AG.dat[bos.aoi30m>800 & bos.can.redux30m>=0.85, AGWI.vs.AGtot]) ## about 40%!! (gets up to about 0.6 if you take down to 5% canopy)
+hist(AG.dat[bos.aoi30m>800 & bos.can.redux30m>=0.85, Fnpp.pixmed])# 
+hist(AG.dat[bos.aoi30m>800 & bos.can.redux30m>=0.85, ANPP/2000])# about 0.5 MgC/pix
 
 nicely <- function(x,y,z){
-  return(paste0(round(x, 1), " (", round(y,1), "-", round(z,1), ")"))
+  return(as.character(paste0(round(x, 1), " (", round(y,1), "-", round(z,1), ")")))
 }
 nicely2 <- function(x,y,z){
-  return(paste0(round(x, 2), " (", round(y,2), "-", round(z,2), ")"))
+  return(as.character(paste0(round(x, 2), " (", round(y,2), "-", round(z,2), ")")))
 }
 
 npp.fin <- data.frame(c("Forest", "Dev", "HDR", "LDR", "OVeg", "Water", "Total"))
 quants <- c(0.025, 0.5, 0.975)
 holdem <- list()
+
+# AG.dat[bos.aoi30m>800 & bos.can.redux30m>=0.85, quantile(bos.biom30m/2000/bos.aoi30m*1E4, probs=c(quants), na.rm = T), by=bos.lulc30m.lumped]
+
 for(i in 1:3){
-  biom.med <- TOT.dat[bos.aoi30m>800 & bos.can.redux30m>=0.85, quantile(bos.biom30m/2000/bos.aoi30m*1E4, probs=c(quants[i]),na.rm=T), by=bos.lulc30m.lumped]
-  totNPP.med <- TOT.dat[bos.aoi30m>800 & bos.can.redux30m>=0.85, quantile(pix.med/2000/bos.aoi30m*1E4, probs=c(quants[i]),na.rm=T), by=bos.lulc30m.lumped]
+  biom.med <- AG.dat[bos.aoi30m>800 & bos.can.redux30m>=0.85, quantile(bos.biom30m/2000/bos.aoi30m*1E4, probs=c(quants[i]),na.rm=T), by=bos.lulc30m.lumped]
+  totNPP.med <- AG.dat[bos.aoi30m>800 & bos.can.redux30m>=0.85, quantile(ANPP/2000/bos.aoi30m*1E4, probs=c(quants[i]),na.rm=T), by=bos.lulc30m.lumped]
   AGNPP.med <- AG.dat[bos.aoi30m>800 & bos.can.redux30m>=0.85, quantile(pix.med/2000/bos.aoi30m*1E4, probs=c(quants[i]),na.rm=T), by=bos.lulc30m.lumped]
   ratio.med <- AG.dat[bos.aoi30m>800 & bos.can.redux30m>=0.85, quantile(AGWI.vs.AGtot, probs=c(quants[i]),na.rm=T), by=bos.lulc30m.lumped]
   
-  biom.tot <- TOT.dat[bos.aoi30m>800 & bos.can.redux30m>=0.85, quantile(bos.biom30m/2000/bos.aoi30m*1E4, probs=c(quants[i]),na.rm=T)]
-  totNPP.tot <- TOT.dat[bos.aoi30m>800 & bos.can.redux30m>=0.85, quantile(pix.med/2000/bos.aoi30m*1E4, probs=c(quants[i]),na.rm=T)]
+  biom.tot <- AG.dat[bos.aoi30m>800 & bos.can.redux30m>=0.85, quantile(bos.biom30m/2000/bos.aoi30m*1E4, probs=c(quants[i]),na.rm=T)]
+  totNPP.tot <- AG.dat[bos.aoi30m>800 & bos.can.redux30m>=0.85, quantile(ANPP/2000/bos.aoi30m*1E4, probs=c(quants[i]),na.rm=T)]
   AGNPP.tot <- AG.dat[bos.aoi30m>800 & bos.can.redux30m>=0.85, quantile(pix.med/2000/bos.aoi30m*1E4, probs=c(quants[i]),na.rm=T)]
   ratio.tot <- AG.dat[bos.aoi30m>800 & bos.can.redux30m>=0.85, quantile(AGWI.vs.AGtot, probs=c(quants[i]),na.rm=T)]
   
@@ -267,25 +273,27 @@ for(i in 1:3){
                              holdem[[1]][[5]],
                              holdem[[3]][[5]]
                      ))
-    colnames(npp.fin) <- c("LULC", "biomass", "TotalNPP", "AGWI", "AGWIvsAGTotal")
+    colnames(npp.fin) <- c("LULC", "biomass", "ANPP", "AGWI", "AGWIvsANPP")
   }
 }
+write.csv(npp.fin, "processed/results/npp.components.summ.csv", row.names = F)
+
 ### add a row for non-forest non-andy results
 hist(AG.dat[bos.aoi30m>800 & bos.lulc30m.lumped!=1 & bos.biom30m<20000, AGWI.vs.AGtot]) ## 0.4 to 0.8, peak at 0.55
 biom.street <- (as.numeric(AG.dat[bos.aoi30m>800 & bos.lulc30m.lumped!=1 & bos.biom30m<20000, quantile(bos.biom30m/bos.aoi30m/2000*1E4, probs=c(0.5, 0.025, 0.975))]))
-totNPP.street <- TOT.dat[bos.aoi30m>800 & bos.lulc30m.lumped!=1 & bos.biom30m<20000, quantile(pix.med/2000/bos.aoi30m*1E4, probs=c(0.5, 0.025, 0.975),na.rm=T)]
+totNPP.street <- AG.dat[bos.aoi30m>800 & bos.lulc30m.lumped!=1 & bos.biom30m<20000, quantile(ANPP/2000/bos.aoi30m*1E4, probs=c(0.5, 0.025, 0.975),na.rm=T)]
 AGNPP.street <- AG.dat[bos.aoi30m>800 & bos.lulc30m.lumped!=1 & bos.biom30m<20000, quantile(pix.med/2000/bos.aoi30m*1E4, probs=c(0.5, 0.025, 0.975),na.rm=T)]
 ratio.street <- AG.dat[bos.aoi30m>800 & bos.lulc30m.lumped!=1 & bos.biom30m<20000, quantile(AGWI.vs.AGtot, probs=c(0.5, 0.025, 0.975),na.rm=T)]
 
-npp.fin <- rbind(npp.fin,
-                 c("Street", 
+npp.fin <- read.csv("processed/results/npp.components.summ.csv", stringsAsFactors = F)
+npp.street <- c("Street", 
                    nicely(biom.street[1], biom.street[2], biom.street[3]),
                    nicely(totNPP.street[1], totNPP.street[2], totNPP.street[3]),
                    nicely(AGNPP.street[1], AGNPP.street[2], AGNPP.street[3]),
                    nicely2(ratio.street[1], ratio.street[2], ratio.street[3]))
-                 )
-npp.fin <- as.character(npp.fin)
-write.csv(npp.fin, "processed/results/npp.components.summ.csv")
+npp.fin <- rbind(npp.fin, npp.street)
+                 
+write.csv(npp.fin, "processed/results/npp.components.summ.csv", row.names = F)
 #####
 
 
