@@ -58,7 +58,6 @@ library(zoo)
 # ### this layer was manually resampled to 30m landsat EVI grid as bos.isa.rereg30m.tif
 # ### Second attempt (much better) was to manually reregister ISA according to road features on MassGIS road centerlines
 # ### this version is bos.isa.RR2.tif --> the 30m aggregate updated bos.isa30m.tif
-
 #####
 
 ###
@@ -174,355 +173,355 @@ library(zoo)
 
 ###
 ### Create cover character classification based on can, isa, ndvi, lulc
-#####
-### Step 0: resample the raw 2.4m Quickbird NDVI from Raciti to the 1m canopy grid
-### (must be performed on desktop): put NDVI.img through Arc and resample+snap to grid for 1m canopy map - be sure the end product is NAD83 UTM19N
-# pyth.path = 'F:/FragEVI/Rscripts/NDVI_resamp.py'
-# output = system2('C:/Python27/ArcGIS10.4/python.exe', args=pyth.path, stdout=TRUE)
-# print(paste("ArcPy working on NDVI resample: ", output))
-
-
-### cover mapping: (V5) Uses re-registered ISA layer + unsmoothed canopy layer, further split by LULC and diagnostic misses mapped, 
-### (V6) corrected with aoi2, aligned to the isa.RR2 layer, as well as LULC masked to same extent
-### (V7) uses unsmoothed canopy map gap-filled along waterline with smoothed canopy data
-bos.ndvi <- raster("processed/bos.ndvi.tif")
-bos.can <- raster("processed/bos.can.redux2.tif")
-bos.lulc <- raster("processed/bos.lulc.lumped.tif")
-bos.aoi <- raster("processed/bos.aoi2.tif")
-bos.isa <- raster("processed/bos.isa.RR2.tif")
-# bos.lulc.full <- raster("processed/bos.lulc.tif")
-# bos.lulc.full <- crop(bos.lulc.full, bos.aoi)
-# bos.lulc.full <- mask(bos.lulc.full, bos.aoi)
-# plot(bos.lulc.full)
-# writeRaster(bos.lulc.full, format="GTiff", overwrite=T, filename = "processed/bos.lulc.full.tif")
-bos.lulc.full <- raster("processed/bos.lulc.full.tif")
-
-# crs(bos.isa); extent(bos.isa)
-# crs(bos.ndvi); extent(bos.ndvi)
-# crs(bos.can); extent(bos.can)
-# crs(bos.lulc); extent(bos.lulc)
-# crs(bos.aoi); extent(bos.aoi) ## we good
-# crs(bos.lulc.full); extent(bos.lulc.full)
-
-### THIS VERSION spits out 6 class raster, splits canopy according to position over impervious vs. pervious
-## then flags each class by its lulc membership
-## then flags pixels that fail to classify
-veg.class <- function(can, isa, ndvi, lulc, aoi, filename.cov, filename.miss) {
-  out <- raster(can)
-  bs <- blockSize(out)
-  out <- writeStart(out, filename.cov, overwrite=TRUE, format="GTiff")
-  miss <- writeStart(out, filename.miss, overwrite=TRUE, format="GTiff")
-  for (i in 1:bs$n) {
-    target <- getValues(aoi, row=bs$row[i], nrows=bs$nrows[i]) ## dummy raster chunk
-    check <- getValues(aoi, row=bs$row[i], nrows=bs$nrows[i]) 
-    target[check==1] <- 999 ### to flag any pixels that escape classification
-    w <- getValues(can, row=bs$row[i], nrows=bs$nrows[i]) ## canopy
-    x <- getValues(isa, row=bs$row[i], nrows=bs$nrows[i]) ## isa
-    y <- getValues(ndvi, row=bs$row[i], nrows=bs$nrows[i]) ## ndvi
-    z <- getValues(lulc, row=bs$row[i], nrows=bs$nrows[i]) ## lulc
-    target[w==1 & x==0] <- 6 # canopy over pervious
-    target[w==1 & x==1] <- 5 # canopy over impervious
-    target[w==0 & x==1] <- 4 # non-veg impervious
-    target[w==0 & x==0 & y>=0.25] <- 2 # grass
-    target[w==0 & x==0 & y<0.25 & z!=6] <- 3 # non-veg pervious
-    target[w==0 & x==0 & y<0.25 & z==6] <- 1 # water
-    target[is.na(check) | is.na(w) | is.na(x) | is.na(y) | is.na(z)] <- NA ## cancel missing values or anything out of aoi
-    ## now further subclass by lulc
-    for(g in 1:6){ ## LULC classes (Forest, Dev, HDRes, LDRes, OVeg, Water)
-      target[target==g & z==1] <- (1*10)+g 
-      target[target==g & z==2] <- (2*10)+g ### ## ie LULC 2 + cov 6 = 26
-      target[target==g & z==3] <- (3*10)+g 
-      target[target==g & z==4] <- (4*10)+g 
-      target[target==g & z==5] <- (5*10)+g 
-      target[target==g & z==6] <- (6*10)+g
-    }  
-    ## check which pixles have LULC but no cover
-    miss.val <- z
-    miss.val[!is.na(miss.val)] <- 0
-    miss.val[miss.val==0 & is.na(target)] <- 1
-    
-    ## write final rasters out
-    miss <- writeValues(miss, miss.val, bs$row[i])
-    out <- writeValues(out, target, bs$row[i])
-    print(paste("finished block", i, "of", bs$n))
-  }
-  out <- writeStop(out)
-  miss <- writeStop(miss)
-  return(out)
-  return(miss)
-}
-veg.class(bos.can, bos.isa, bos.ndvi, bos.lulc, bos.aoi, 
-                "processed/bos.cov.V7-canisa+lulc.tif",
-                "processed/bos.cov.V7-missed.tif")
-cov.test <- raster("processed/bos.cov.V7-canisa+lulc.tif") ## fine
-plot(cov.test)
-miss.test <- raster("processed/bos.cov.V7-missed.tif") ### just marginal in water where LULC sometimes bleeds out
-plot(miss.test) ## we didn't miss anything in V7
-### looking at V6, we have cured the misalignment but there are 0 canopy parts of the industrial waterfront that got maked in an earlier processing step
-### missing these canopy pixels produces most of the marginal missing cover pixels that remain. Re-make canopy layer to aoi2
-### on close inspection, the Raciti biomass map is cropped to somewhat mysterious margins along the waterfront, which is why we miss these in the canopy map
-### V7 seems to correct these problems -- we have a cov value for every pixel that has an LULC
-### visual inspection shows that AOI2 (drawn on boston town boundaries) is a bit bigger at the waterfront than Cov.V7 bc LULC coverage does not extend into the water quite as far
-### i.e. it will be important to talk about relative fractional areas based on the most areally restrictive case (LULC*cover), not AOI (which will be bigger than the data)
-
-##
-### now we need 1m layers that are flagged for the pervious classses we will model for Rsoil
-## feed this the Cover*LULC layer
-## note re water: We won't be able to tell barren vs. open water, only detect canopy and grass; just treat anything with LULC label "water" as open water, no ground cover
-## note re Forest: We are not modeling anything fancy in forest, will treat all of it as 
-flag.n.bag <- function(cov, lulc, aoi, filename.flag) { ## give filename.flag as the generic path-- this will create multiple rasters
-  print(paste("working on water pervious"))
-  lulc.names <- c("water")
-  lulc.codes <- c(6)
-  for(a in 1:length(lulc.names)){
-    out <- raster(cov)
-    bs <- blockSize(out)
-    out <- writeStart(out, paste0(filename.flag, ".", lulc.names[a], ".perv.tif"), overwrite=TRUE, format="GTiff")
-    print(paste("working on ", lulc.names[a]))
-    for (i in 1:bs$n) {
-      target <- getValues(cov, row=bs$row[i], nrows=bs$nrows[i]) ## dummy raster chunk
-      target <- rep(NA, length(target)) 
-      c <- getValues(cov, row=bs$row[i], nrows=bs$nrows[i])
-      z <- getValues(lulc, row=bs$row[i], nrows=bs$nrows[i]) ## lulc
-      t <- getValues(aoi, row=bs$row[i], nrows=bs$nrows[i]) ## aoi
-      target[z==lulc.codes[a] & c%%10%in%c(2,3,6)] <- 1 ## flag anything with grass, barren, or pervious under canopy
-      target[is.na(t)] <- NA ## cancel values out of AOI
-      ## write final rasters out
-      out <- writeValues(out, target, bs$row[i])
-      print(paste("finished block", i, "of", bs$n))
-    }
-    out <- writeStop(out)
-    # return(out)
-  }
-
-  ## now do subclasses of the rest
-  lulc.names <- c("Forest", "Dev", "HDRes", "LDRes", "OVeg")
-  # lulc.codes <- c(1,2,3,4,5)
-  lulc.codes <- c(1)
-  cov.names <- c("grass", "barr", "canPerv")
-  cov.codes <- c(2,3,6)
-  for(a in 1:length(lulc.names)){ ## loop each LULC in turn
-    print(paste("working on pervious cover in", lulc.names[a]))
-    for(b in 1:length(cov.codes)){ ## handle each pervious cover class separately
-      out <- raster(cov)
-      bs <- blockSize(out)
-      out <- writeStart(out, paste0(filename.flag, ".", lulc.names[a], ".", cov.names[b], ".tif"), overwrite=TRUE, format="GTiff")
-      print(paste("working on cover", cov.names[b]))
-      for (i in 1:bs$n) {
-        target <- getValues(cov, row=bs$row[i], nrows=bs$nrows[i]) ## dummy raster chunk
-        target <- rep(NA, length(target)) 
-        c <- getValues(cov, row=bs$row[i], nrows=bs$nrows[i])
-        z <- getValues(lulc, row=bs$row[i], nrows=bs$nrows[i]) ## lulc
-        t <- getValues(aoi, row=bs$row[i], nrows=bs$nrows[i]) ## aoi
-        target[z==lulc.codes[a] & c%%10==cov.codes[b]] <- 1 ## flag this specific cover type
-        target[is.na(t)] <- NA ## cancel values out of AOI
-        ## write final rasters out
-        out <- writeValues(out, target, bs$row[i])
-        print(paste("finished block", i, "of", bs$n))
-      }
-      out <- writeStop(out)
-      # return(out)
-    } 
-  }
-}
-
-## run the flag code to get a 1/0 flag for each pervious lulc*cover type
-bos.lulc <- raster("processed/bos.lulc.lumped.tif")
-bos.aoi <- raster("processed/bos.aoi2.tif")
-bos.cov <- raster("processed/bos.cov.V7-canisa+lulc.tif")
-
-flag.n.bag(bos.cov, bos.lulc, bos.aoi, "processed/bos.cov.V7.5")
-
-### this flags anything with lulc = water
-flag.water <- function(cov, lulc, aoi, filename.flag) { ## give filename.flag as the generic path-- this will create multiple rasters
-  print(paste("working on open water"))
-  lulc.names <- c("water")
-  lulc.codes <- c(6)
-  for(a in 1:length(lulc.names)){
-    out <- raster(cov)
-    bs <- blockSize(out)
-    out <- writeStart(out, paste0(filename.flag, ".", lulc.names[a], ".open.tif"), overwrite=TRUE, format="GTiff")
-    print(paste("working on ", lulc.names[a]))
-    for (i in 1:bs$n) {
-      target <- getValues(cov, row=bs$row[i], nrows=bs$nrows[i]) ## dummy raster chunk
-      target <- rep(NA, length(target)) 
-      c <- getValues(cov, row=bs$row[i], nrows=bs$nrows[i])
-      z <- getValues(lulc, row=bs$row[i], nrows=bs$nrows[i]) ## lulc
-      t <- getValues(aoi, row=bs$row[i], nrows=bs$nrows[i]) ## aoi
-      target[z==lulc.codes[a] & c%%10%in%c(1)] <- 1 ## flag anything marked open water in lulc*cov map
-      target[is.na(t)] <- NA ## cancel values out of AOI
-      ## write final rasters out
-      out <- writeValues(out, target, bs$row[i])
-      print(paste("finished block", i, "of", bs$n))
-    }
-    out <- writeStop(out)
-    # return(out)
-  }
-}
-
-bos.lulc <- raster("processed/bos.lulc.lumped.tif")
-bos.aoi <- raster("processed/bos.aoi2.tif")
-bos.cov <- raster("processed/bos.cov.V7-canisa+lulc.tif")
-flag.water(bos.cov, bos.lulc, bos.aoi, "processed/bos.cov.V7")
-### honestly the V7 map looks good -- alignment to aerial photo and features vs. ISA looks good, coverage looks exhaustive and non-overlapping
-### this all has to be run through the arcpy aggregation script to get the 30 m values
-
+# #####
+# ### Step 0: resample the raw 2.4m Quickbird NDVI from Raciti to the 1m canopy grid
+# ### (must be performed on desktop): put NDVI.img through Arc and resample+snap to grid for 1m canopy map - be sure the end product is NAD83 UTM19N
+# # pyth.path = 'F:/FragEVI/Rscripts/NDVI_resamp.py'
+# # output = system2('C:/Python27/ArcGIS10.4/python.exe', args=pyth.path, stdout=TRUE)
+# # print(paste("ArcPy working on NDVI resample: ", output))
+# 
+# 
+# ### cover mapping: (V5) Uses re-registered ISA layer + unsmoothed canopy layer, further split by LULC and diagnostic misses mapped, 
+# ### (V6) corrected with aoi2, aligned to the isa.RR2 layer, as well as LULC masked to same extent
+# ### (V7) uses unsmoothed canopy map gap-filled along waterline with smoothed canopy data
+# bos.ndvi <- raster("processed/bos.ndvi.tif")
+# bos.can <- raster("processed/bos.can.redux2.tif")
+# bos.lulc <- raster("processed/bos.lulc.lumped.tif")
+# bos.aoi <- raster("processed/bos.aoi2.tif")
+# bos.isa <- raster("processed/bos.isa.RR2.tif")
+# # bos.lulc.full <- raster("processed/bos.lulc.tif")
+# # bos.lulc.full <- crop(bos.lulc.full, bos.aoi)
+# # bos.lulc.full <- mask(bos.lulc.full, bos.aoi)
+# # plot(bos.lulc.full)
+# # writeRaster(bos.lulc.full, format="GTiff", overwrite=T, filename = "processed/bos.lulc.full.tif")
+# bos.lulc.full <- raster("processed/bos.lulc.full.tif")
+# 
+# # crs(bos.isa); extent(bos.isa)
+# # crs(bos.ndvi); extent(bos.ndvi)
+# # crs(bos.can); extent(bos.can)
+# # crs(bos.lulc); extent(bos.lulc)
+# # crs(bos.aoi); extent(bos.aoi) ## we good
+# # crs(bos.lulc.full); extent(bos.lulc.full)
+# 
+# ### THIS VERSION spits out 6 class raster, splits canopy according to position over impervious vs. pervious
+# ## then flags each class by its lulc membership
+# ## then flags pixels that fail to classify
+# veg.class <- function(can, isa, ndvi, lulc, aoi, filename.cov, filename.miss) {
+#   out <- raster(can)
+#   bs <- blockSize(out)
+#   out <- writeStart(out, filename.cov, overwrite=TRUE, format="GTiff")
+#   miss <- writeStart(out, filename.miss, overwrite=TRUE, format="GTiff")
+#   for (i in 1:bs$n) {
+#     target <- getValues(aoi, row=bs$row[i], nrows=bs$nrows[i]) ## dummy raster chunk
+#     check <- getValues(aoi, row=bs$row[i], nrows=bs$nrows[i]) 
+#     target[check==1] <- 999 ### to flag any pixels that escape classification
+#     w <- getValues(can, row=bs$row[i], nrows=bs$nrows[i]) ## canopy
+#     x <- getValues(isa, row=bs$row[i], nrows=bs$nrows[i]) ## isa
+#     y <- getValues(ndvi, row=bs$row[i], nrows=bs$nrows[i]) ## ndvi
+#     z <- getValues(lulc, row=bs$row[i], nrows=bs$nrows[i]) ## lulc
+#     target[w==1 & x==0] <- 6 # canopy over pervious
+#     target[w==1 & x==1] <- 5 # canopy over impervious
+#     target[w==0 & x==1] <- 4 # non-veg impervious
+#     target[w==0 & x==0 & y>=0.25] <- 2 # grass
+#     target[w==0 & x==0 & y<0.25 & z!=6] <- 3 # non-veg pervious
+#     target[w==0 & x==0 & y<0.25 & z==6] <- 1 # water
+#     target[is.na(check) | is.na(w) | is.na(x) | is.na(y) | is.na(z)] <- NA ## cancel missing values or anything out of aoi
+#     ## now further subclass by lulc
+#     for(g in 1:6){ ## LULC classes (Forest, Dev, HDRes, LDRes, OVeg, Water)
+#       target[target==g & z==1] <- (1*10)+g 
+#       target[target==g & z==2] <- (2*10)+g ### ## ie LULC 2 + cov 6 = 26
+#       target[target==g & z==3] <- (3*10)+g 
+#       target[target==g & z==4] <- (4*10)+g 
+#       target[target==g & z==5] <- (5*10)+g 
+#       target[target==g & z==6] <- (6*10)+g
+#     }  
+#     ## check which pixles have LULC but no cover
+#     miss.val <- z
+#     miss.val[!is.na(miss.val)] <- 0
+#     miss.val[miss.val==0 & is.na(target)] <- 1
+#     
+#     ## write final rasters out
+#     miss <- writeValues(miss, miss.val, bs$row[i])
+#     out <- writeValues(out, target, bs$row[i])
+#     print(paste("finished block", i, "of", bs$n))
+#   }
+#   out <- writeStop(out)
+#   miss <- writeStop(miss)
+#   return(out)
+#   return(miss)
+# }
+# veg.class(bos.can, bos.isa, bos.ndvi, bos.lulc, bos.aoi, 
+#                 "processed/bos.cov.V7-canisa+lulc.tif",
+#                 "processed/bos.cov.V7-missed.tif")
+# cov.test <- raster("processed/bos.cov.V7-canisa+lulc.tif") ## fine
+# plot(cov.test)
+# miss.test <- raster("processed/bos.cov.V7-missed.tif") ### just marginal in water where LULC sometimes bleeds out
+# plot(miss.test) ## we didn't miss anything in V7
+# ### looking at V6, we have cured the misalignment but there are 0 canopy parts of the industrial waterfront that got maked in an earlier processing step
+# ### missing these canopy pixels produces most of the marginal missing cover pixels that remain. Re-make canopy layer to aoi2
+# ### on close inspection, the Raciti biomass map is cropped to somewhat mysterious margins along the waterfront, which is why we miss these in the canopy map
+# ### V7 seems to correct these problems -- we have a cov value for every pixel that has an LULC
+# ### visual inspection shows that AOI2 (drawn on boston town boundaries) is a bit bigger at the waterfront than Cov.V7 bc LULC coverage does not extend into the water quite as far
+# ### i.e. it will be important to talk about relative fractional areas based on the most areally restrictive case (LULC*cover), not AOI (which will be bigger than the data)
+# 
+# ##
+# ### now we need 1m layers that are flagged for the pervious classses we will model for Rsoil
+# ## feed this the Cover*LULC layer
+# ## note re water: We won't be able to tell barren vs. open water, only detect canopy and grass; just treat anything with LULC label "water" as open water, no ground cover
+# ## note re Forest: We are not modeling anything fancy in forest, will treat all of it as 
+# flag.n.bag <- function(cov, lulc, aoi, filename.flag) { ## give filename.flag as the generic path-- this will create multiple rasters
+#   print(paste("working on water pervious"))
+#   lulc.names <- c("water")
+#   lulc.codes <- c(6)
+#   for(a in 1:length(lulc.names)){
+#     out <- raster(cov)
+#     bs <- blockSize(out)
+#     out <- writeStart(out, paste0(filename.flag, ".", lulc.names[a], ".perv.tif"), overwrite=TRUE, format="GTiff")
+#     print(paste("working on ", lulc.names[a]))
+#     for (i in 1:bs$n) {
+#       target <- getValues(cov, row=bs$row[i], nrows=bs$nrows[i]) ## dummy raster chunk
+#       target <- rep(NA, length(target)) 
+#       c <- getValues(cov, row=bs$row[i], nrows=bs$nrows[i])
+#       z <- getValues(lulc, row=bs$row[i], nrows=bs$nrows[i]) ## lulc
+#       t <- getValues(aoi, row=bs$row[i], nrows=bs$nrows[i]) ## aoi
+#       target[z==lulc.codes[a] & c%%10%in%c(2,3,6)] <- 1 ## flag anything with grass, barren, or pervious under canopy
+#       target[is.na(t)] <- NA ## cancel values out of AOI
+#       ## write final rasters out
+#       out <- writeValues(out, target, bs$row[i])
+#       print(paste("finished block", i, "of", bs$n))
+#     }
+#     out <- writeStop(out)
+#     # return(out)
+#   }
+# 
+#   ## now do subclasses of the rest
+#   lulc.names <- c("Forest", "Dev", "HDRes", "LDRes", "OVeg")
+#   # lulc.codes <- c(1,2,3,4,5)
+#   lulc.codes <- c(1)
+#   cov.names <- c("grass", "barr", "canPerv")
+#   cov.codes <- c(2,3,6)
+#   for(a in 1:length(lulc.names)){ ## loop each LULC in turn
+#     print(paste("working on pervious cover in", lulc.names[a]))
+#     for(b in 1:length(cov.codes)){ ## handle each pervious cover class separately
+#       out <- raster(cov)
+#       bs <- blockSize(out)
+#       out <- writeStart(out, paste0(filename.flag, ".", lulc.names[a], ".", cov.names[b], ".tif"), overwrite=TRUE, format="GTiff")
+#       print(paste("working on cover", cov.names[b]))
+#       for (i in 1:bs$n) {
+#         target <- getValues(cov, row=bs$row[i], nrows=bs$nrows[i]) ## dummy raster chunk
+#         target <- rep(NA, length(target)) 
+#         c <- getValues(cov, row=bs$row[i], nrows=bs$nrows[i])
+#         z <- getValues(lulc, row=bs$row[i], nrows=bs$nrows[i]) ## lulc
+#         t <- getValues(aoi, row=bs$row[i], nrows=bs$nrows[i]) ## aoi
+#         target[z==lulc.codes[a] & c%%10==cov.codes[b]] <- 1 ## flag this specific cover type
+#         target[is.na(t)] <- NA ## cancel values out of AOI
+#         ## write final rasters out
+#         out <- writeValues(out, target, bs$row[i])
+#         print(paste("finished block", i, "of", bs$n))
+#       }
+#       out <- writeStop(out)
+#       # return(out)
+#     } 
+#   }
+# }
+# 
+# ## run the flag code to get a 1/0 flag for each pervious lulc*cover type
+# bos.lulc <- raster("processed/bos.lulc.lumped.tif")
+# bos.aoi <- raster("processed/bos.aoi2.tif")
+# bos.cov <- raster("processed/bos.cov.V7-canisa+lulc.tif")
+# 
+# flag.n.bag(bos.cov, bos.lulc, bos.aoi, "processed/bos.cov.V7.5")
+# 
+# ### this flags anything with lulc = water
+# flag.water <- function(cov, lulc, aoi, filename.flag) { ## give filename.flag as the generic path-- this will create multiple rasters
+#   print(paste("working on open water"))
+#   lulc.names <- c("water")
+#   lulc.codes <- c(6)
+#   for(a in 1:length(lulc.names)){
+#     out <- raster(cov)
+#     bs <- blockSize(out)
+#     out <- writeStart(out, paste0(filename.flag, ".", lulc.names[a], ".open.tif"), overwrite=TRUE, format="GTiff")
+#     print(paste("working on ", lulc.names[a]))
+#     for (i in 1:bs$n) {
+#       target <- getValues(cov, row=bs$row[i], nrows=bs$nrows[i]) ## dummy raster chunk
+#       target <- rep(NA, length(target)) 
+#       c <- getValues(cov, row=bs$row[i], nrows=bs$nrows[i])
+#       z <- getValues(lulc, row=bs$row[i], nrows=bs$nrows[i]) ## lulc
+#       t <- getValues(aoi, row=bs$row[i], nrows=bs$nrows[i]) ## aoi
+#       target[z==lulc.codes[a] & c%%10%in%c(1)] <- 1 ## flag anything marked open water in lulc*cov map
+#       target[is.na(t)] <- NA ## cancel values out of AOI
+#       ## write final rasters out
+#       out <- writeValues(out, target, bs$row[i])
+#       print(paste("finished block", i, "of", bs$n))
+#     }
+#     out <- writeStop(out)
+#     # return(out)
+#   }
+# }
+# 
+# bos.lulc <- raster("processed/bos.lulc.lumped.tif")
+# bos.aoi <- raster("processed/bos.aoi2.tif")
+# bos.cov <- raster("processed/bos.cov.V7-canisa+lulc.tif")
+# flag.water(bos.cov, bos.lulc, bos.aoi, "processed/bos.cov.V7")
+# ### honestly the V7 map looks good -- alignment to aerial photo and features vs. ISA looks good, coverage looks exhaustive and non-overlapping
+# ### this all has to be run through the arcpy aggregation script to get the 30 m values
+# 
 #####
 
 ###
 ## flag grass categories at 1m (=cover class "Z2")
-#####
-# bos.lulc <- raster("processed/bos.lulc.lumped.tif")
-bos.aoi <- raster("processed/bos.aoi2.tif")
-bos.cov <- raster("processed/bos.cov.V7-canisa+lulc.tif")
-bos.lulc.full <- raster("processed/bos.lulc.full.tif")
-
-grass.flag <- function(cov, aoi, lulc.full, filename.grass, filename.golf) { # x is 1m lulc, lu.spot is list of LULC targeted, aoi is aoi 1m raster
-  out1 <- raster(cov)
-  out2 <- raster(cov)
-  bs <- blockSize(out1)
-  out1 <- writeStart(out1, filename.grass, overwrite=TRUE, format="GTiff")
-  out2 <- writeStart(out2, filename.golf, overwrite=TRUE, format="GTiff")
-  for (i in 1:bs$n) {
-    v <- getValues(cov, row=bs$row[i], nrows=bs$nrows[i]) ## 1m cov+lulc
-    a <- getValues(aoi, row=bs$row[i], nrows=bs$nrows[i]) # AOI mask
-    f <- getValues(lulc.full, row=bs$row[i], nrows=bs$nrows[i]) # unlumped LULC
-    
-    grass <- rep(0, length(v))
-    grass[v%%10==2] <- 1 ## flag grass with 1
-    grass[is.na(a)] <- NA ## cancel values outside of AOI
-    out1 <- writeValues(out1, grass, bs$row[i])
-    
-    golf <- rep(0, length(v))
-    golf[grass==1] <- 1 ## flag grass with 1
-    golf[f!=26] <- 0 ## if it's grass not in a golf course fuck it
-    golf[is.na(a)] <- NA ## cancel values outside of AOI
-    out2 <- writeValues(out2, golf, bs$row[i])
-    
-    print(paste("finished block", i, "of", bs$n))
-  }
-  out1 <- writeStop(out1)
-  out2 <- writeStop(out2)
-  return(out1)
-  return(out2)
-}
-grass.flag(bos.cov, bos.aoi, bos.lulc.full, "processed/bos.turfgrass.tif", "processed/bos.golfgrass.tif")
-
-bos.grass <- raster("processed/bos.turfgrass.tif")
-bos.golf <- raster("processed/bos.golfgrass.tif")
-plot(bos.grass)
-plot(bos.golf)
+# #####
+# # bos.lulc <- raster("processed/bos.lulc.lumped.tif")
+# bos.aoi <- raster("processed/bos.aoi2.tif")
+# bos.cov <- raster("processed/bos.cov.V7-canisa+lulc.tif")
+# bos.lulc.full <- raster("processed/bos.lulc.full.tif")
+# 
+# grass.flag <- function(cov, aoi, lulc.full, filename.grass, filename.golf) { # x is 1m lulc, lu.spot is list of LULC targeted, aoi is aoi 1m raster
+#   out1 <- raster(cov)
+#   out2 <- raster(cov)
+#   bs <- blockSize(out1)
+#   out1 <- writeStart(out1, filename.grass, overwrite=TRUE, format="GTiff")
+#   out2 <- writeStart(out2, filename.golf, overwrite=TRUE, format="GTiff")
+#   for (i in 1:bs$n) {
+#     v <- getValues(cov, row=bs$row[i], nrows=bs$nrows[i]) ## 1m cov+lulc
+#     a <- getValues(aoi, row=bs$row[i], nrows=bs$nrows[i]) # AOI mask
+#     f <- getValues(lulc.full, row=bs$row[i], nrows=bs$nrows[i]) # unlumped LULC
+#     
+#     grass <- rep(0, length(v))
+#     grass[v%%10==2] <- 1 ## flag grass with 1
+#     grass[is.na(a)] <- NA ## cancel values outside of AOI
+#     out1 <- writeValues(out1, grass, bs$row[i])
+#     
+#     golf <- rep(0, length(v))
+#     golf[grass==1] <- 1 ## flag grass with 1
+#     golf[f!=26] <- 0 ## if it's grass not in a golf course fuck it
+#     golf[is.na(a)] <- NA ## cancel values outside of AOI
+#     out2 <- writeValues(out2, golf, bs$row[i])
+#     
+#     print(paste("finished block", i, "of", bs$n))
+#   }
+#   out1 <- writeStop(out1)
+#   out2 <- writeStop(out2)
+#   return(out1)
+#   return(out2)
+# }
+# grass.flag(bos.cov, bos.aoi, bos.lulc.full, "processed/bos.turfgrass.tif", "processed/bos.golfgrass.tif")
+# 
+# bos.grass <- raster("processed/bos.turfgrass.tif")
+# bos.golf <- raster("processed/bos.golfgrass.tif")
+# plot(bos.grass)
+# plot(bos.golf)
 #####
 
 
 ##
 ### Examine cover area for each LULC in bulk
-#####
-bos.cov <- raster("processed/bos.cov.V7-canisa+lulc.tif")
-bos.aoi <- raster("processed/bos.aoi2.tif")
-bos.lulc <- raster("processed/bos.lulc.lumped.tif")
-extent(bos.cov); crs(bos.cov)
-extent(bos.aoi); crs(bos.aoi)
-extent(bos.lulc); crs(bos.lulc) ## we good
-
-lulc.cov.count <- function(x, a, l) { # x is cov*lulc, a is aoi, l is lulc lumped
-  out <- raster(x)
-  bs <- blockSize(out)
-  # forest.tmp <- numeric()
-  # dev.tmp <- numeric()
-  # hdres.tmp <- numeric()
-  # ldres.tmp <- numeric()
-  # oveg.tmp <- numeric()
-  # water.tmp <- numeric()
-  cov.tot <- 0
-  aoi.tot <- 0
-  lulc.tot <- 0
-  container.tmp <- matrix(ncol=6, nrow=6, rep(0, 36))
-  total.tmp <- matrix(nrow=6, ncol=4, rep(0, 24))
-  for (i in 1:bs$n) {
-    raw <- getValues(x, row=bs$row[i], nrows=bs$nrows[i])
-    aoi <- getValues(a, row=bs$row[i], nrows=bs$nrows[i])
-    lulc <- getValues(l, row=bs$row[i], nrows=bs$nrows[i])
-    cov.tot <- sum(!is.na(raw))
-    aoi.tot <- sum(!is.na(aoi))
-    lulc.tot <- sum(!is.na(lulc))
-    for(d in 1:6){ ## spool out by LULC --> data is coded LULC+cover
-      for(c in 1:6){
-        container.tmp[d,c] <- container.tmp[d,c]+sum(((raw%/%10)==d & (raw%%10)==c), na.rm=T) ## count up the pixels in each lulc*cov category
-      }
-      total.tmp[d,1] <- total.tmp[d,1]+sum((aoi==1 & lulc==d), na.rm=T) ## cross check: how many of each lulc class did you pick up?
-      total.tmp[d,2] <- total.tmp[d,2]+sum((lulc==d), na.rm=T) ## cross check: how many of each lulc class did you pick up?
-      total.tmp[d,3] <- total.tmp[d,3]+sum((aoi==1), na.rm=T) ## cross check: how many of this lulc are in the aoi?
-      total.tmp[d,4] <- total.tmp[d,4]+sum(!is.na(raw), na.rm=T) ## cross check: how many cover retrievals do you get in this LULC?
-      }
-    print(paste("finished block", i, "of", bs$n))
-  }
-  final.tmp <- as.data.frame(cbind(container.tmp,
-                     total.tmp))
-  return(final.tmp)
-  return(print(paste("cover total count=", cov.tot/1E4)))
-  return(print(paste("aoi total count=", aoi.tot/1E4)))
-  return(print(paste("lulc total count=", lulc.tot/1E4)))
-}
-
-cov.frac <- lulc.cov.count(bos.cov, bos.aoi, bos.lulc)
-
-## cover classes are 1 water 2 grass 3 nonveg perv 4 nonveg imperv 5 can+imperv 6 can+perv
-cov.frac <- cbind(c("Forest", "Dev", "HDRes", "LDRes", "OVeg", "Water"), cov.frac)
-colnames(cov.frac) <- c("LULC", "Water", "Grass", "Nonveg+Perv", "Nonveg+Imperv", "Can+Imperv", "Can+Perv", 
-                        "ValidAOI+LULC", "ValidLULC", "ValidAOI", "ValidLULCxcover")
-# cov.frac[,2:8] <- as.numeric(as.character(cov.frac[,2:8]))
-cov.frac$CovTotal <- apply(cov.frac[,2:7], MARGIN = 1, FUN = sum)
-
-## how are area total coming out?
-sum(cov.frac$CovTotal)/1E4 ## 12395 ha has a cov+LULC --> same as validLULCXCover total
-sum(cov.frac$`ValidAOI+LULC`)/1E4 ## 12395 ha have AOI+LULC --> same as cover total
-sum(cov.frac$ValidLULC)/1E4 ## 12395 ha have LULC --> same as above
-cov.frac$ValidAOI[1]/1E4 ## 12,434 ha in AOI -- AOI is bigger than the lulc and lulc*cover map, but AOI2 here is a bit smaller than AOI in Boston C uptake study
-cov.frac$ValidLULCxcover[1]/1E4 ## 12395 ha same as total cov+LULC
-
-## OK so there are AOI pixels that never got LULC -- towns.shp for boston is slightly more extensive (esp. waterfront) than the LULC layer
-12395/12434 ## about 0.3% of pixels have no LULC but are in AOI2
-## but everywhere that had an LULC had a cover
-
-## fractional area (judged by most restrictive pixel set -->valid!)
-cov.frac[1,2:7]/cov.frac$CovTotal[1] ## forest, 0% water, 2% barren, 12% grass, 5% imperv, 78% can+perv, 4% can+imperv
-cov.frac[2,2:7]/cov.frac$CovTotal[2] ## Dev, 0% water, 5% grass, 9% barren, 75% imperv, 7% can+perv, 4% can+imperv
-cov.frac[3,2:7]/cov.frac$CovTotal[3] ## HDres, 0% water, 9% grass, 10% barren, 51% imperv, 20% can+perv, 10% can+imperv
-cov.frac[4,2:7]/cov.frac$CovTotal[4] ## LDres, 0% water, 17% grass, 12% barren, 26% imperv, 38% can+perv, 7% can+imperv
-cov.frac[5,2:7]/cov.frac$CovTotal[5] ## OVeg, 0% water, 43% grass, 20% barren, 18% imperv, 17% can+perv, 3% can+imperv
-cov.frac[6,2:7]/cov.frac$CovTotal[6] ## water, 85% water, 4% grass, 0% barren, 3% imperv, 8% can+perv, ~0% can+imperv
-
-## do things add up?
-perv <- apply(cov.frac[,c(2,3,4,7)], MARGIN=1, FUN=sum)/cov.frac$CovTotal
-imperv <- apply(cov.frac[,c(5,6)], MARGIN=1, FUN=sum)/cov.frac$CovTotal
-perv+imperv ## excellent -- everything lines up 
-
-## how does this compare to the fractions Decina used?
-perv.tot <- apply(cov.frac[,c(2,3,4,7)], MARGIN=1, FUN=sum)
-perv.frac <- numeric()
-for(i in 1:6){
-  perv.frac <- rbind(perv.frac, cov.frac[i,c(2,3,4,7)]/perv.tot[i])
-}
-apply(perv.frac, MARGIN=1, FUN=sum)
-cbind(c("Forest", "Dev", "HDRes", "LDRes", "OVeg", "Water"), perv.frac)
-
-## make a summary table
-cov.sum <- as.data.frame(cbind(as.character(cov.frac$LULC), cov.frac$CovTotal/1E4))
-colnames(cov.sum) <- c("LULC", "total.area.ha")
-cov.sum$total.area.ha <- as.numeric(as.character(cov.sum$total.area.ha))
-cov.sum$LULC.frac.tot <- cov.sum$total.area.ha/sum(cov.sum$total.area.ha)
-cov.sum$total.isa.ha <- apply(cov.frac[,c(5,6)], MARGIN=1, FUN=sum)/1E4
-cov.sum$isa.frac.tot <- cov.sum$total.isa.ha/cov.sum$total.area.ha
-cov.sum$can.perv.ha <- cov.frac$`Can+Perv`/1E4
-cov.sum$can.perv.frac <- cov.sum$can.perv.ha/(apply(cov.frac[,c(2,3,4,7)], MARGIN=1, FUN=sum)/1E4)
-cov.sum$grass.ha <- cov.frac$Grass/1E4
-cov.sum$grass.frac <- cov.sum$grass.ha/(apply(cov.frac[,c(2,3,4,7)], MARGIN=1, FUN=sum)/1E4)
-cov.sum$barr.ha <- cov.frac$`Nonveg+Perv`/1E4
-cov.sum$barr.frac <- cov.sum$barr.ha/(apply(cov.frac[,c(2,3,4,7)], MARGIN=1, FUN=sum)/1E4)
-cov.sum[,2:11] <- round(cov.sum[,2:11],2)
-write.csv(cov.sum, "processed/results/perv.cover.summary.V1.csv")
-## this is extremely close to Table s5 areas/fractions; just a bit trimmed down from the original aoi.tif because 1) aoi2 is smaller and b) cov*LULC is even a bit smaller than aoi2
+# #####
+# bos.cov <- raster("processed/bos.cov.V7-canisa+lulc.tif")
+# bos.aoi <- raster("processed/bos.aoi2.tif")
+# bos.lulc <- raster("processed/bos.lulc.lumped.tif")
+# extent(bos.cov); crs(bos.cov)
+# extent(bos.aoi); crs(bos.aoi)
+# extent(bos.lulc); crs(bos.lulc) ## we good
+# 
+# lulc.cov.count <- function(x, a, l) { # x is cov*lulc, a is aoi, l is lulc lumped
+#   out <- raster(x)
+#   bs <- blockSize(out)
+#   # forest.tmp <- numeric()
+#   # dev.tmp <- numeric()
+#   # hdres.tmp <- numeric()
+#   # ldres.tmp <- numeric()
+#   # oveg.tmp <- numeric()
+#   # water.tmp <- numeric()
+#   cov.tot <- 0
+#   aoi.tot <- 0
+#   lulc.tot <- 0
+#   container.tmp <- matrix(ncol=6, nrow=6, rep(0, 36))
+#   total.tmp <- matrix(nrow=6, ncol=4, rep(0, 24))
+#   for (i in 1:bs$n) {
+#     raw <- getValues(x, row=bs$row[i], nrows=bs$nrows[i])
+#     aoi <- getValues(a, row=bs$row[i], nrows=bs$nrows[i])
+#     lulc <- getValues(l, row=bs$row[i], nrows=bs$nrows[i])
+#     cov.tot <- sum(!is.na(raw))
+#     aoi.tot <- sum(!is.na(aoi))
+#     lulc.tot <- sum(!is.na(lulc))
+#     for(d in 1:6){ ## spool out by LULC --> data is coded LULC+cover
+#       for(c in 1:6){
+#         container.tmp[d,c] <- container.tmp[d,c]+sum(((raw%/%10)==d & (raw%%10)==c), na.rm=T) ## count up the pixels in each lulc*cov category
+#       }
+#       total.tmp[d,1] <- total.tmp[d,1]+sum((aoi==1 & lulc==d), na.rm=T) ## cross check: how many of each lulc class did you pick up?
+#       total.tmp[d,2] <- total.tmp[d,2]+sum((lulc==d), na.rm=T) ## cross check: how many of each lulc class did you pick up?
+#       total.tmp[d,3] <- total.tmp[d,3]+sum((aoi==1), na.rm=T) ## cross check: how many of this lulc are in the aoi?
+#       total.tmp[d,4] <- total.tmp[d,4]+sum(!is.na(raw), na.rm=T) ## cross check: how many cover retrievals do you get in this LULC?
+#       }
+#     print(paste("finished block", i, "of", bs$n))
+#   }
+#   final.tmp <- as.data.frame(cbind(container.tmp,
+#                      total.tmp))
+#   return(final.tmp)
+#   return(print(paste("cover total count=", cov.tot/1E4)))
+#   return(print(paste("aoi total count=", aoi.tot/1E4)))
+#   return(print(paste("lulc total count=", lulc.tot/1E4)))
+# }
+# 
+# cov.frac <- lulc.cov.count(bos.cov, bos.aoi, bos.lulc)
+# 
+# ## cover classes are 1 water 2 grass 3 nonveg perv 4 nonveg imperv 5 can+imperv 6 can+perv
+# cov.frac <- cbind(c("Forest", "Dev", "HDRes", "LDRes", "OVeg", "Water"), cov.frac)
+# colnames(cov.frac) <- c("LULC", "Water", "Grass", "Nonveg+Perv", "Nonveg+Imperv", "Can+Imperv", "Can+Perv", 
+#                         "ValidAOI+LULC", "ValidLULC", "ValidAOI", "ValidLULCxcover")
+# # cov.frac[,2:8] <- as.numeric(as.character(cov.frac[,2:8]))
+# cov.frac$CovTotal <- apply(cov.frac[,2:7], MARGIN = 1, FUN = sum)
+# 
+# ## how are area total coming out?
+# sum(cov.frac$CovTotal)/1E4 ## 12395 ha has a cov+LULC --> same as validLULCXCover total
+# sum(cov.frac$`ValidAOI+LULC`)/1E4 ## 12395 ha have AOI+LULC --> same as cover total
+# sum(cov.frac$ValidLULC)/1E4 ## 12395 ha have LULC --> same as above
+# cov.frac$ValidAOI[1]/1E4 ## 12,434 ha in AOI -- AOI is bigger than the lulc and lulc*cover map, but AOI2 here is a bit smaller than AOI in Boston C uptake study
+# cov.frac$ValidLULCxcover[1]/1E4 ## 12395 ha same as total cov+LULC
+# 
+# ## OK so there are AOI pixels that never got LULC -- towns.shp for boston is slightly more extensive (esp. waterfront) than the LULC layer
+# 12395/12434 ## about 0.3% of pixels have no LULC but are in AOI2
+# ## but everywhere that had an LULC had a cover
+# 
+# ## fractional area (judged by most restrictive pixel set -->valid!)
+# cov.frac[1,2:7]/cov.frac$CovTotal[1] ## forest, 0% water, 2% barren, 12% grass, 5% imperv, 78% can+perv, 4% can+imperv
+# cov.frac[2,2:7]/cov.frac$CovTotal[2] ## Dev, 0% water, 5% grass, 9% barren, 75% imperv, 7% can+perv, 4% can+imperv
+# cov.frac[3,2:7]/cov.frac$CovTotal[3] ## HDres, 0% water, 9% grass, 10% barren, 51% imperv, 20% can+perv, 10% can+imperv
+# cov.frac[4,2:7]/cov.frac$CovTotal[4] ## LDres, 0% water, 17% grass, 12% barren, 26% imperv, 38% can+perv, 7% can+imperv
+# cov.frac[5,2:7]/cov.frac$CovTotal[5] ## OVeg, 0% water, 43% grass, 20% barren, 18% imperv, 17% can+perv, 3% can+imperv
+# cov.frac[6,2:7]/cov.frac$CovTotal[6] ## water, 85% water, 4% grass, 0% barren, 3% imperv, 8% can+perv, ~0% can+imperv
+# 
+# ## do things add up?
+# perv <- apply(cov.frac[,c(2,3,4,7)], MARGIN=1, FUN=sum)/cov.frac$CovTotal
+# imperv <- apply(cov.frac[,c(5,6)], MARGIN=1, FUN=sum)/cov.frac$CovTotal
+# perv+imperv ## excellent -- everything lines up 
+# 
+# ## how does this compare to the fractions Decina used?
+# perv.tot <- apply(cov.frac[,c(2,3,4,7)], MARGIN=1, FUN=sum)
+# perv.frac <- numeric()
+# for(i in 1:6){
+#   perv.frac <- rbind(perv.frac, cov.frac[i,c(2,3,4,7)]/perv.tot[i])
+# }
+# apply(perv.frac, MARGIN=1, FUN=sum)
+# cbind(c("Forest", "Dev", "HDRes", "LDRes", "OVeg", "Water"), perv.frac)
+# 
+# ## make a summary table
+# cov.sum <- as.data.frame(cbind(as.character(cov.frac$LULC), cov.frac$CovTotal/1E4))
+# colnames(cov.sum) <- c("LULC", "total.area.ha")
+# cov.sum$total.area.ha <- as.numeric(as.character(cov.sum$total.area.ha))
+# cov.sum$LULC.frac.tot <- cov.sum$total.area.ha/sum(cov.sum$total.area.ha)
+# cov.sum$total.isa.ha <- apply(cov.frac[,c(5,6)], MARGIN=1, FUN=sum)/1E4
+# cov.sum$isa.frac.tot <- cov.sum$total.isa.ha/cov.sum$total.area.ha
+# cov.sum$can.perv.ha <- cov.frac$`Can+Perv`/1E4
+# cov.sum$can.perv.frac <- cov.sum$can.perv.ha/(apply(cov.frac[,c(2,3,4,7)], MARGIN=1, FUN=sum)/1E4)
+# cov.sum$grass.ha <- cov.frac$Grass/1E4
+# cov.sum$grass.frac <- cov.sum$grass.ha/(apply(cov.frac[,c(2,3,4,7)], MARGIN=1, FUN=sum)/1E4)
+# cov.sum$barr.ha <- cov.frac$`Nonveg+Perv`/1E4
+# cov.sum$barr.frac <- cov.sum$barr.ha/(apply(cov.frac[,c(2,3,4,7)], MARGIN=1, FUN=sum)/1E4)
+# cov.sum[,2:11] <- round(cov.sum[,2:11],2)
+# write.csv(cov.sum, "processed/results/perv.cover.summary.V1.csv")
+# ## this is extremely close to Table s5 areas/fractions; just a bit trimmed down from the original aoi.tif because 1) aoi2 is smaller and b) cov*LULC is even a bit smaller than aoi2
 #####
 
 
@@ -537,6 +536,7 @@ write.csv(cov.sum, "processed/results/perv.cover.summary.V1.csv")
 # plot(test30m)
 # test30m.res <- resample(test30m, grid, method="bilinear", filename="processed/bos.test30m.res.tif")
 ### the resample step produces some pretty serious divergence from a manual aggregate+snap to grid in Arcmap
+#####
 
 ##
 ### rerun the lulc polys to get a 30m majority area class for the LULC lumped categories
@@ -576,14 +576,13 @@ write.csv(cov.sum, "processed/results/perv.cover.summary.V1.csv")
 # writeRaster(test, "processed/bos.lulc.lumped30m.tif", overwrite=T, format="GTiff")
 #####
 
-#####
 
 ##
-### collate cover areas and apply growing-season soil Resp factors
+### collate cover areas
 #####
-library(raster)
-library(data.table)
-library(qdapRegex)
+# library(raster)
+# library(data.table)
+# library(qdapRegex)
 # bos.aoi <- raster("H:/BosBiog/processed/bos.aoi230m.tif")
 # bos.isa <- raster("H:/BosBiog/processed/bos.isa30m.tif") ## this is reprocessed from the RR2 1m file that was reregistered to road centerlines
 # bos.lulc <- raster("H:/BosBiog/processed/bos.lulc.lumped30m.tif")
@@ -596,7 +595,7 @@ library(qdapRegex)
 # soilR.dat[,lulc.lump:=getValues(bos.lulc)]
 
 ## load up the 30m cover files and append
-soilR.dat <- fread("processed/soilR.cov.fracs.csv")
+# soilR.dat <- fread("processed/soilR.cov.fracs.csv")
 # cov.files <- list.files("processed/")
 # cov.files <- cov.files[grep(cov.files, pattern = "bos.cov.")]
 # cov.files <- cov.files[grep(cov.files, pattern = ".tif")]
@@ -685,11 +684,11 @@ soilR.dat <- fread("processed/soilR.cov.fracs.csv")
 # (2) Treat Open water as respiration 0, and make peace with the small amount of detected "cover" (e.g. grass) with some respiration factor
 # with (2) it is not possible to detect canopy over soil vs. canopy over water; barren is null because anything that looks barren is counted as open water
 # therefore the only thing you could possibly model separately would be the water*grass category (*shrug*)
-
-###
-### static factors (single realization)
 #####
-# ### static soilR factors
+
+### static soilR factors
+#####
+# 
 # forest.soilR.GS <- (2.62/1E6)*44.01*1E-3*(12/44.01)*60*60*24*(310-134) ## rate umolCO2/m2/s --> in kgC/m2/year (growing season, DOY138-DOY307)
 # grass.soilR.GS <- (4.49/1E6)*44.01*1E-3*(12/44.01)*60*60*24*(310-134)
 # ls.soilR.GS <- (6.73/1E6)*44.01*1E-3*(12/44.01)*60*60*24*(310-134)
@@ -873,7 +872,11 @@ soilR.dat <- fread("processed/soilR.cov.fracs.csv")
 
 
 ## upgrade: Figure out the factors to growing season facrors to use if we integrate under the GAM curve of each land type
-#### static soilR factors
+#####
+soilR.dat <- fread("processed/soilR.cov.fracs.csv")
+set.seed(4444)
+
+## static soilR factors
 forest.soilR.GS <- (2.62/1E6)*44.01*1E-3*(12/44.01)*60*60*24*(310-134) ## rate umolCO2/m2/s --> in kgC/m2/year (growing season, DOY138-DOY307)
 grass.soilR.GS <- (4.49/1E6)*44.01*1E-3*(12/44.01)*60*60*24*(310-134)
 ls.soilR.GS <- (6.73/1E6)*44.01*1E-3*(12/44.01)*60*60*24*(310-134)
@@ -952,9 +955,16 @@ forest.soilR.GS.rand <- flux.hold[samp3,4]
 ### here's the logic: 
 ## 1) Barren cover is either assigned a 0 (barren) or landscaped soilR factor
 ##  1b) this can vary depending on the LULC class (Developed vs. Residential vs. O.veg)
+## V3 settings -- "built in" sensitivity assessments, not sure this makes sense
 D.barr.gets.barr <- c(rep(0.50, 100), rep(0.75, 250), rep(1, 700)) ## in developed, how much barren fraction do we apply 0 SoilR to?
 R.barr.gets.barr <- c(rep(0, 800), rep(0.25, 200), rep(0.5, 50)) ## same barren fuzziness in Resid, only 
 sub.can.LS <- c(rep(0.5,  800), rep(0.25, 100), rep(0.75, 100)) ## how much of the sub-canopy area do we treat as Landscaped or as Lawn
+
+## V3.2 settings -- set everything to V2 setting before we fucked with this
+D.barr.gets.barr <- c(rep(0.50, 0), rep(0.75, 0), rep(1, 700)) ## in developed, how much barren fraction do we apply 0 SoilR to?
+R.barr.gets.barr <- c(rep(0, 800), rep(0.25, 0), rep(0.5, 0)) ## same barren fuzziness in Resid, only 
+sub.can.LS <- c(rep(0.5,  800), rep(0.25, 0), rep(0.75, 0)) ## how much of the sub-canopy area do we treat as Landscaped or as Lawn
+
 hist(D.barr.gets.barr) ### most Dev-barren will get 0, but sometimes we will treat it as 25% or up to 50% as landscaped 
 hist(R.barr.gets.barr) ## Most R-barren will get treated like LS, but a small fraction will get up to 50% will get barren
 hist(sub.can.LS) ### most model runs will treat sub-canopy as 50/50 landscape and grass, but will mod it 25/75 or 75/25 sometimes
@@ -962,6 +972,8 @@ hist(sub.can.LS) ### most model runs will treat sub-canopy as 50/50 landscape an
 ### apply these rates to our pixels based on area of each thing
 soilR.results <- copy(soilR.dat)
 soilR.box <- matrix(ncol=1000, nrow=dim(soilR.dat)[1])
+med.na <- function(x){median(x, na.rm=T)}
+sum.na <- function(x){sum(x, na.rm=T)}
 for(k in 1:1000){
   D.barr.frac <- sample(D.barr.gets.barr, 1) ## select a Develeoped.barren factor to apply 
   R.barr.frac <- sample(R.barr.gets.barr, 1) ## same for Residential.barren
@@ -978,15 +990,15 @@ for(k in 1:1000){
   soilR.results[,soilR.Dev.tot:=sum(soilR.Dev.barr, soilR.Dev.grass, soilR.Dev.canPerv, na.rm=T), by=1:NROW(soilR.results)]
 
   ## HDRes
-  soilR.results[!is.na(HDRes.barr), soilR.HDRes.barr:=(HDRes.barr*R.barr.frac*ls.soilR.GS.rand[k])+
-                  (HDRes.barr*(1-R.barr.frac)*0)]
+  soilR.results[!is.na(HDRes.barr), soilR.HDRes.barr:=(HDRes.barr*(1-R.barr.frac)*ls.soilR.GS.rand[k])+
+                  (HDRes.barr*(R.barr.frac)*0)]
   soilR.results[!is.na(HDRes.grass), soilR.HDRes.grass:=(HDRes.grass*grass.soilR.GS.rand[k])]
   soilR.results[!is.na(HDRes.canPerv), soilR.HDRes.canPerv:=(sub.can.frac*HDRes.canPerv*ls.soilR.GS.rand[k])+((1-sub.can.frac)*HDRes.canPerv*grass.soilR.GS.rand[k])]
   soilR.results[,soilR.HDRes.tot:=sum(soilR.HDRes.barr, soilR.HDRes.canPerv, soilR.HDRes.grass, na.rm=T), by=1:NROW(soilR.results)]
 
   ## LDRes
-  soilR.results[!is.na(LDRes.barr),soilR.LDRes.barr:=(LDRes.barr*R.barr.frac*ls.soilR.GS.rand[k])+
-                  (LDRes.barr*(1-R.barr.frac)*0)]
+  soilR.results[!is.na(LDRes.barr),soilR.LDRes.barr:=(LDRes.barr*(1-R.barr.frac)*ls.soilR.GS.rand[k])+
+                  (LDRes.barr*(R.barr.frac)*0)]
   soilR.results[!is.na(LDRes.grass),soilR.LDRes.grass:=(LDRes.grass*grass.soilR.GS.rand[k])]
   soilR.results[!is.na(LDRes.canPerv),soilR.LDRes.canPerv:=(sub.can.frac*LDRes.canPerv*ls.soilR.GS.rand[k])+((1-sub.can.frac)*LDRes.canPerv*grass.soilR.GS.rand[k])]
   soilR.results[,soilR.LDRes.tot:=sum(soilR.LDRes.barr, soilR.LDRes.canPerv, soilR.LDRes.grass, na.rm=T), by=1:NROW(soilR.results)]
@@ -1018,13 +1030,21 @@ for(k in 1:1000){
   soilR.box[,k] <- soilR.results[,soilR.total]
   print(paste("finished iteration", k))
 }
+
+## package up results with cover data and write
 soilR.box <- cbind(seq(1:dim(soilR.dat)[1]), soilR.box)
 rm(soilR.results)
 colnames(soilR.box)[1:1001] <- c("pix.ID", paste0("soilR.total.iter.", 1:1000))
 soilR.box.dt <- as.data.table(as.data.frame(soilR.box))
-fwrite(soilR.box.dt, file="processed/results/soilR.results.V3.csv")
 rm(soilR.box)
+soilR.dat <- fread("processed/soilR.cov.fracs.csv")
+soilR.dat[,pix.ID:=seq(1, dim(soilR.dat)[1])]
+soilR.dat <- merge(soilR.dat, soilR.box.dt, by="pix.ID")
 rm(soilR.box.dt)
+med.na <- function(x){median(x, na.rm=T)}
+soilR.dat[, pix.med:=apply(soilR.dat[, 23:1022], MARGIN=1, FUN=med.na)]
+soilR.dat[is.na(aoi), pix.med:=NA]
+fwrite(soilR.dat, "processed/results/soilR.results.V3-2.csv")
 ### Version history of this calcuation:
 ## V0: Static GS length, static (mean) daily R rates, water area anomaly not fixed, R in all LULC water = 0
 ## V1: V0, LULC*cover 1m and 30m redone to get consistent areas
@@ -1036,50 +1056,50 @@ rm(soilR.box.dt)
 ## 1) Amount of Dev-barren to get 0 vs. Dev-barren to get LS (weighted towards SR=0)
 ## 2) Amount of Resid-barren to get LS vs. Resid-barren to get 0 (weighted towards SR=LS)
 ## 3) Amount of sub-canopy pervious to assign LS vs. Grass (weighted towards 50/50, but can be 25/75 or 75/25)
-
-res <- fread("processed/results/soilR.results.V3.csv")
-soilR.dat[,pix.ID:=seq(1, dim(soilR.dat)[1])]
-soilR.dat <- merge(soilR.dat, res, by="pix.ID") ## 1020 columns
-rm(res)
-med.na <- function(x){median(x, na.rm=T)}
-soilR.dat[, pix.med:=apply(soilR.dat[, 23:1022], MARGIN=1, FUN=med.na)]
-soilR.dat[is.na(aoi), pix.med:=NA]
-fwrite(soilR.dat, "processed/results/soilR.results.V3.csv")
-
-## diagnostics and summaries, erorr distributed results
-tots <- apply(soilR.dat[aoi>800, 21:1020], MARGIN=2, FUN=sum.na)
-summary(tots/1E6); hist(tots) ## all just about 38 GgC/yr
-mean(tots/1000)/soilR.dat[aoi>800, sum(pix.TotArea, na.rm=T)/1E4] ## 2.48 MgC/ha/yr
-
-## a nice table of the bulk results
-sum.na <- function(x){sum(x, na.rm=T)}
-med.na <- function(x){median(x, na.rm=T)}
-map.tots <- c(mean(apply(soilR.dat[aoi>800 & lulc.lump==1, 21:1020], MARGIN=2, FUN=sum.na))/1E6,
-              mean(apply(soilR.dat[aoi>800 & lulc.lump==2, 21:1020], MARGIN=2, FUN=sum.na))/1E6,
-              mean(apply(soilR.dat[aoi>800 & lulc.lump==3, 21:1020], MARGIN=2, FUN=sum.na))/1E6,
-              mean(apply(soilR.dat[aoi>800 & lulc.lump==4, 21:1020], MARGIN=2, FUN=sum.na))/1E6,
-              mean(apply(soilR.dat[aoi>800 & lulc.lump==5, 21:1020], MARGIN=2, FUN=sum.na))/1E6,
-              mean(apply(soilR.dat[aoi>800 & lulc.lump==6, 21:1020], MARGIN=2, FUN=sum.na))/1E6,
-              mean(apply(soilR.dat[aoi>800, 21:1020], MARGIN=2, FUN=sum.na))/1E6)
-
-pix.med <- c(median(apply(soilR.dat[aoi>800 & lulc.lump==1, 21:1020], FUN=med.na, MARGIN=1)),
-             median(apply(soilR.dat[aoi>800 & lulc.lump==2, 21:1020], FUN=med.na, MARGIN=1)),
-             median(apply(soilR.dat[aoi>800 & lulc.lump==3, 21:1020], FUN=med.na, MARGIN=1)),
-             median(apply(soilR.dat[aoi>800 & lulc.lump==4, 21:1020], FUN=med.na, MARGIN=1)),
-             median(apply(soilR.dat[aoi>800 & lulc.lump==5, 21:1020], FUN=med.na, MARGIN=1)),
-             median(apply(soilR.dat[aoi>800 & lulc.lump==6, 21:1020], FUN=med.na, MARGIN=1)),
-             median(apply(soilR.dat[aoi>800, 21:1020], FUN=med.na, MARGIN=1)))
-
-soilR.sum <- data.frame(cbind(c("Forest", "Dev", "HDRes", "LDRes", "OVeg", "Water", "Total"),
-                              round(map.tots, 2), round(pix.med, 2)))
-colnames(soilR.sum) <- c("LULC", "mean.total.SoilR.GgC", "median.pix.soilR.kgC")
-
-write.csv(soilR.sum, "processed/results/soilR.summary.V3.csv")
+## V3-2: Removed the uncertainty associated with cover factor assignments (not producing same results as V2??)
 
 
-## make some tifs
-hist(soilR.dat[aoi>800, pix.med])
-aa <- raster("H:/BosBiog/processed/bos.aoi230m.tif")
-aa <- setValues(aa, soilR.dat[,pix.med])
-writeRaster(aa, "processed/results/soilR.pixmed.V3.tif", format="GTiff", overwrite=T)
-plot(aa)
+###
+# ## some diagnostics and summaries
+# library(data.table)
+# library(raster)
+# # soilR.dat <- fread("processed/results/soilR.results.V3-2.csv")
+# soilR.dat <- fread("processed/results/soilR.results.V2.csv")
+# med.na <- function(x){median(x, na.rm=T)}
+# sum.na <- function(x){sum(x, na.rm=T)}
+# tots <- apply(soilR.dat[aoi>800, 23:1022], MARGIN=2, FUN=sum.na)
+# summary(tots/1E6); hist(tots/1E6) ## all just about 38 GgC/yr, V3-2 about 31 GgC/yr
+# mean(tots/1000)/soilR.dat[aoi>800, sum(aoi, na.rm=T)/1E4] ## V2: 3.1 MgC/ha/yr, V3-2: 2.6 MgC/ha/yr
+# 
+# ## a nice table of the bulk results
+# sum.na <- function(x){sum(x, na.rm=T)}
+# med.na <- function(x){median(x, na.rm=T)}
+# map.tots <- c(mean(apply(soilR.dat[aoi>800 & lulc.lump==1, 21:1020], MARGIN=2, FUN=sum.na))/1E6,
+#               mean(apply(soilR.dat[aoi>800 & lulc.lump==2, 21:1020], MARGIN=2, FUN=sum.na))/1E6,
+#               mean(apply(soilR.dat[aoi>800 & lulc.lump==3, 21:1020], MARGIN=2, FUN=sum.na))/1E6,
+#               mean(apply(soilR.dat[aoi>800 & lulc.lump==4, 21:1020], MARGIN=2, FUN=sum.na))/1E6,
+#               mean(apply(soilR.dat[aoi>800 & lulc.lump==5, 21:1020], MARGIN=2, FUN=sum.na))/1E6,
+#               mean(apply(soilR.dat[aoi>800 & lulc.lump==6, 21:1020], MARGIN=2, FUN=sum.na))/1E6,
+#               mean(apply(soilR.dat[aoi>800, 21:1020], MARGIN=2, FUN=sum.na))/1E6)
+# 
+# pix.med <- c(median(apply(soilR.dat[aoi>800 & lulc.lump==1, 21:1020], FUN=med.na, MARGIN=1)),
+#              median(apply(soilR.dat[aoi>800 & lulc.lump==2, 21:1020], FUN=med.na, MARGIN=1)),
+#              median(apply(soilR.dat[aoi>800 & lulc.lump==3, 21:1020], FUN=med.na, MARGIN=1)),
+#              median(apply(soilR.dat[aoi>800 & lulc.lump==4, 21:1020], FUN=med.na, MARGIN=1)),
+#              median(apply(soilR.dat[aoi>800 & lulc.lump==5, 21:1020], FUN=med.na, MARGIN=1)),
+#              median(apply(soilR.dat[aoi>800 & lulc.lump==6, 21:1020], FUN=med.na, MARGIN=1)),
+#              median(apply(soilR.dat[aoi>800, 21:1020], FUN=med.na, MARGIN=1)))
+# 
+# soilR.sum <- data.frame(cbind(c("Forest", "Dev", "HDRes", "LDRes", "OVeg", "Water", "Total"),
+#                               round(map.tots, 2), round(pix.med, 2)))
+# colnames(soilR.sum) <- c("LULC", "mean.total.SoilR.GgC", "median.pix.soilR.kgC")
+# 
+# write.csv(soilR.sum, "processed/results/soilR.summary.V3-2.csv")
+# 
+# 
+# ## make some tifs
+# hist(soilR.dat[aoi>800, pix.med])
+# aa <- raster("H:/BosBiog/processed/bos.aoi230m.tif")
+# aa <- setValues(aa, soilR.dat[,pix.med])
+# writeRaster(aa, "processed/results/soilR.pixmed.V3.tif", format="GTiff", overwrite=T)
+# plot(aa)

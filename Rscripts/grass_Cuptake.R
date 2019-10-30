@@ -72,6 +72,7 @@ summary(grass.dat[bos.aoi>800, bos.grass]) ## no NA
 
 ### I have settled on an NPP of 0.9 kgC/m2/yr for grass bc it will tend to give us about 0.1 kgC/m2/yr NEE after SoilR, which lines up with empirical
 ### GRASS V2 INCLUDES THE ERROR IN GPP REPORTED IN MILLER 2018
+set.seed(4444)
 npp.gpp <- 0.62 ## FALK 1980 fraction of GPP that ends up NPP
 gs.len <- 240 ## growing season length, Peters and McFadden
 g.gpp <- 6.05 ## Miller mean turfgrass GPP for whole study area, gC/m2/d
@@ -94,6 +95,7 @@ grass.results <- matrix(ncol=1000, nrow=dim(grass.dat)[1])
 for(d in 1:1000){
   grass.dat[, grass.npp:=bos.grass*g.npp.rand[d]]
   grass.dat[is.na(bos.aoi), grass.npp:=NA]
+  grass.dat[bos.grass==0, grass.npp:=0]
   
   grass.results[,d] <- grass.dat[,grass.npp]
   print(paste("finished iteration", d))
@@ -103,14 +105,13 @@ grass.results <- cbind(seq(1:dim(grass.dat)[1]),
                        grass.results)
 
 colnames(grass.results) <- c("pix.ID", "bos.aoi30m", "bos.lulc30m.lumped", "bos.isa30m", "bos.grass30m",
-                             paste0("soilR.total.iter.", 1:1000))
+                             paste0("grassNPP.iter.", 1:1000))
 med.na <- function(x){median(x, na.rm=T)}
 grass.results[,pix.med:=apply(grass.results[,6:1005], MARGIN=1, FUN = med.na)]
 fwrite(grass.results, file="processed/results/grassNPP.results.V2.csv")
 
 grass.results[bos.aoi30m>800, sum(pix.med, na.rm=T)/1E6] ### comparable to the amount of woody biomass uptake
 hist(grass.results[bos.aoi30m>800, pix.med]); summary(grass.results[bos.aoi30m>800, pix.med]) ## most are low, no NA
-
 
 
 ## a nice table of the bulk results

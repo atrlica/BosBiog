@@ -10,15 +10,16 @@ library(zoo)
 # setwd("/projectnb/buultra/atrlica/BosBiog/")
 ### read in results 
 tree <- fread("processed/results/hybrid.TOTAL.results.V8.csv")
-# fwrite(AG.dat, file = "processed/results/hybrid.AG.results.V8.csv")
 grass <- fread("processed/results/grassNPP.results.V2.csv")
-soil <- fread("processed/results/soilR.results.V3.csv")
+soil <- fread("processed/results/soilR.results.V2.csv") ## let's not fuck with land cover sensitivity in-built
+soil <- fread("processed/results/soilR.results.V3-2.csv") ## let's not fuck with land cover sensitivity in-built
 
 ## recall: grass V1 is a static (no error) uptake assumption in kgC/m2/yr
 ## hybrid V8 is the combined Andy forest V7 and street tree sim V7 that includes root+AG+foliage
 ## soil V2 is the Decina 3-value scheme but with (minor) error distribution with a whole-season GAM model for daily CO2 release
+## grass V2 is iterated across the error distribution as reported in Miller 2018
+## soil V3 also contains "sensitivty" values introduced by random sampling of which cover classes to apply which SoilR factors to
 ## upgrade to soil would be to include noise on mean emissions/day
-## upgrade to grass would be to include error on the mean emissions factor per m2
 ## upgrade on hybrid would be to provide some annual growth model error for foliage same as for woody biomass increment
 
 ## get values and collate for each pixel
@@ -30,40 +31,46 @@ grass <- grass[order(pix.ID),]
 tree <- tree[order(pix.ID),]
 tree[,25:1024] <- tree[,25:1024]/2 # careful, trees are in kgBIOMASS on import
 soil <- soil[order(pix.ID),]
+# soilv2 <- soilv2[order(pix.ID),]
 
 tree[,pix.med:=apply(tree[,25:1024], FUN=med.na, MARGIN=1)] 
-soil[,pix.med:=apply(soil[,2:1001], FUN=med.na, MARGIN=1)]
+# soil[,pix.med:=apply(soil[,23:1022], FUN=med.na, MARGIN=1)] ## for V3 and above
+soil[,pix.med:=apply(soil[,23:1022], FUN=med.na, MARGIN=1)] ## for V2 and above with in-built cover data
+grass[,pix.med:=apply(grass[,6:1005], FUN=med.na, MARGIN=1)] ## this one has in-build error from literature
 
 ### Gin up a comparable grass NPP matrix (no error distribution available in V1)
-grass[bos.aoi>800 & bos.grass==0, grass.npp:=0]
-grass[bos.aoi>800 & is.na(bos.grass), grass.npp:=0]
-grass.fill <- matrix(data=rep(grass[,grass.npp], 1000), ncol=1000, byrow=F)
-grass <- cbind(grass, grass.fill) ## we have a valid grass npp value for every "realization" at every real pixel
-sum.na(grass[,grass.npp]/1000/1000) ## 12.9 ktC in grass across map
+# grass[bos.aoi>800 & bos.grass==0, grass.npp:=0]
+# grass[bos.aoi>800 & is.na(bos.grass), grass.npp:=0]
+# grass.fill <- matrix(data=rep(grass[,grass.npp], 1000), ncol=1000, byrow=F)
+# grass <- cbind(grass, grass.fill) ## we have a valid grass npp value for every "realization" at every real pixel
+hist(apply(grass[,6:1005], MARGIN = 2, FUN = sum.na)/1000/1000) ## median 12.8, 11.3-14.5
+# dim(grass[bos.aoi30m>800 & !is.na(bos.grass30m) & !is.na(soilR.total.iter.101),])
 # grass <- merge(tree[,1:6], grass, by.x="pix.ID", by.y="pixID")## add in the data you'll need for the other stuff
 
 ## compare to tree NPP
 hist(apply(tree[,25:1024], MARGIN=2, FUN=sum.na)/1000/1000) ### peaking at 25 ktC across map realizations
-# grass[bos.aoi>800 & !is.na(grass.npp),] ## 136422
-# dim(tree[bos.aoi30m>800 & bos.biom30m>10,]) ## 106659
+# dim(grass[bos.aoi30m>800 & !is.na(soilR.total.iter.1),]) ## 136422
+# dim(tree[bos.aoi30m>800 & !is.na(npp.iter.1.hybrid),]) ## 135498... close
 # View(tree[bos.aoi30m>800 & is.na(bos.biom30m),]) ## 952 of these but all appear to be 0 npp 
 
 ### total NPP matrix
-npp <- tree[,25:1024]+grass[,9:1008]
-# hist(apply(npp, MARGIN=2, FUN=sum.na)/1000/1000)  ## peaking about 38-39 (about what you'd expect)
-# summary(apply(npp, MARGIN=2, FUN=sum.na)/1000/1000)
+npp <- tree[,25:1024]+grass[,6:1005]
+hist(apply(npp, MARGIN=2, FUN=sum.na)/1000/1000)  ## peaking about 38-39 (about what you'd expect)
+summary(apply(npp, MARGIN=2, FUN=sum.na)/1000/1000) ## median 38, 35.5-42.8 ktC
 
 ## soil Respiration matrix
-soil <- merge(tree[,1:6], soil, by="pix.ID") ## get some pixel data back
-# soil[bos.aoi30m>800 & !is.na(bos.isa30m) & is.na(soilR.total.iter.1),] ## 0
-# soil[bos.aoi30m>800 & bos.isa30m==1 & is.na(soilR.total.iter.1),] ## 0
-# summary(soil[bos.aoi30m>800 & bos.isa30m==1, soilR.total.iter.1]) ## all 0's no NAs
+# names(soil)[c(2,3,4)] <- c("bos.aoi30m", "bos.isa30m", "bos.lulc30m.lumped")
+soil <- merge(tree[,1:6], soil, by="pix.ID")
+summary(apply(soil[bos.aoi30m>800, 28:1027], MARGIN = 2, FUN=sum.na)/1000/1000) ## V2: tight at 38; V3 30-40, median 32
+hist(apply(soil[bos.aoi30m>800, 28:1027], MARGIN = 2, FUN=sum.na)/1000/1000)
+# dim(soil[bos.aoi30m>800 & !is.na(soilR.total.iter.1)]) ## 136667
 
 ## NEE matrix
-biog <- soil[,2:1001]-npp ## match straight across columns -- we don't have any intuition about how soil and NPP models should be matched (if not just randomly)
+biog <- soil[,28:1027]-npp ## match straight across columns -- we don't have any intuition about how soil and NPP models should be matched (if not just randomly)
+# biog <- soil[,23:1022]-npp ## match straight across columns -- we don't have any intuition about how soil and NPP models should be matched (if not just randomly)
 names(biog) <- paste0("nee.iter.", seq(1:1000))
-biog <- cbind(seq(1:dim(biog)[1]), biog) ## add pixID
-biog <- merge(tree[,1:6], biog, by.x="pix.ID", by.y="V1")
+biog[, pix.ID:=seq(1:dim(biog)[1])] ## add pixID
+biog <- merge(tree[,1:6], biog, by="pix.ID")
 biog <- biog[order(pix.ID),]
 biog <- cbind(biog[,1:6], grass$bos.grass, biog[,7:1006]) ## slot the total grass cover fraction
 names(biog)[7] <- "bos.grass30m"
@@ -72,13 +79,19 @@ biog[is.na(bos.aoi30m), nee.med:=NA]
 biog[,nee.med.MgC.ha.yr:=nee.med/1000/bos.aoi30m*1E4]
 biog[is.na(bos.aoi30m), nee.med.MgC.ha.yr:=NA]
 hist(biog[bos.aoi30m>800, nee.med.MgC.ha.yr]) ## between +/- 5 MgC/ha/yr mostly
+summary(biog[,nee.med])
+summary(biog[bos.aoi30m>800, nee.med]) ## V1 mean is a tiny sink, V2 mean is bigger?
+summary(biog[bos.aoi30m>800, nee.med.MgC.ha.yr]) ## mean is a tiny sink
+
 
 hist(tree[bos.aoi30m>800,pix.med]) ## up to 1000 kgC/pix
-hist(grass[bos.aoi>800,grass.npp]) ## up to 800 kgC/pix
+hist(grass[bos.aoi30m>800,pix.med]) ## up to 800 kgC/pix
 hist(soil[bos.aoi30m>800,pix.med]) ## up to 1000 kgC/pix
 hist(biog[bos.aoi30m>800,nee.med]); summary(biog[bos.aoi30m>800 & nee.med!=0, nee.med]) ## some large sources/sinks, but most within +/- 100 kgC
-biog[bos.aoi30m>800, sum(nee.med, na.rm=T)]/1E6 ## A very tiny sink
-fwrite(biog, file="processed/results/NEE.V2.csv") ## V2 has the TOTAL HYBRID Npp for trees included
+summary(apply(biog[bos.aoi30m>800, 8:1007], MARGIN=2, FUN=sum.na)/1000/1000) ## median V2 sum -0.6 sink, median V3 sum 5.4 ktC sink, median V.3-2 back to -0.6
+hist(apply(biog[bos.aoi30m>800, 8:1007], MARGIN=2, FUN=sum.na)/1000/1000)
+biog[bos.aoi30m>800, sum(nee.med, na.rm=T)]/1E6 ## V1 very tiny sink, V2 like a 5.7 ktC sink
+fwrite(biog, file="processed/results/NEE.V3.csv") ## V2 has the TOTAL HYBRID Npp for trees included, V3 has V2 grass (reported error) and V3 soilR (uncertainty in land cover, but set to 0)
 
 ## a nice table of the bulk results
 sum.na <- function(x){sum(x, na.rm=T)}
@@ -98,33 +111,43 @@ nee.tots <- round(nee.tots, 1)
 # summary(zoop) ## only 32 NA's here, fuck knows what they are
 
 ## source/sink strength in MgC/ha/yr
-nee.meds <- rbind(quantile(apply(biog[bos.aoi30m>800 & bos.lulc30m.lumped==1,8:1007]/1000/biog[bos.aoi30m>800 & bos.lulc30m.lumped==1,bos.aoi30m]*1E4, FUN=med.na, MARGIN=1), probs=c(0.025, 0.5, 0.975)),
-                  quantile(apply(biog[bos.aoi30m>800 & bos.lulc30m.lumped==2,8:1007]/1000/biog[bos.aoi30m>800 & bos.lulc30m.lumped==1,bos.aoi30m]*1E4, FUN=med.na, MARGIN=1), probs=c(0.025, 0.5, 0.975)),
-                  quantile(apply(biog[bos.aoi30m>800 & bos.lulc30m.lumped==3,8:1007]/1000/biog[bos.aoi30m>800 & bos.lulc30m.lumped==1,bos.aoi30m]*1E4, FUN=med.na, MARGIN=1), probs=c(0.025, 0.5, 0.975)),
-                  quantile(apply(biog[bos.aoi30m>800 & bos.lulc30m.lumped==4,8:1007]/1000/biog[bos.aoi30m>800 & bos.lulc30m.lumped==1,bos.aoi30m]*1E4, FUN=med.na, MARGIN=1), probs=c(0.025, 0.5, 0.975)),
-                  quantile(apply(biog[bos.aoi30m>800 & bos.lulc30m.lumped==5,8:1007]/1000/biog[bos.aoi30m>800 & bos.lulc30m.lumped==1,bos.aoi30m]*1E4, FUN=med.na, MARGIN=1), probs=c(0.025, 0.5, 0.975)),
-                  quantile(apply(biog[bos.aoi30m>800 & bos.lulc30m.lumped==6,8:1007]/1000/biog[bos.aoi30m>800 & bos.lulc30m.lumped==1,bos.aoi30m]*1E4, FUN=med.na, MARGIN=1), probs=c(0.025, 0.5, 0.975)),
-                  quantile(apply(biog[bos.aoi30m>800,8:1007]/1000/biog[bos.aoi30m>800 & bos.lulc30m.lumped==1,bos.aoi30m]*1E4, FUN=med.na, MARGIN=1), probs=c(0.025, 0.5, 0.975), na.rm=T))
+hist(apply(((biog[bos.aoi30m>800 & bos.lulc30m.lumped==1,8:1007]/1000)/biog[bos.aoi30m>800 & bos.lulc30m.lumped==1,bos.aoi30m/1E4]), MARGIN=2, FUN=med.na))
+hist(apply(((biog[bos.aoi30m>800 & bos.lulc30m.lumped==2,8:1007]/1000)/biog[bos.aoi30m>800 & bos.lulc30m.lumped==2,bos.aoi30m/1E4]), MARGIN=2, FUN=med.na))
+hist(apply(((biog[bos.aoi30m>800 & bos.lulc30m.lumped==3,8:1007]/1000)/biog[bos.aoi30m>800 & bos.lulc30m.lumped==3,bos.aoi30m/1E4]), MARGIN=2, FUN=med.na))
+hist(apply(((biog[bos.aoi30m>800 & bos.lulc30m.lumped==4,8:1007]/1000)/biog[bos.aoi30m>800 & bos.lulc30m.lumped==4,bos.aoi30m/1E4]), MARGIN=2, FUN=med.na))
+hist(apply(((biog[bos.aoi30m>800 & bos.lulc30m.lumped==5,8:1007]/1000)/biog[bos.aoi30m>800 & bos.lulc30m.lumped==5,bos.aoi30m/1E4]), MARGIN=2, FUN=med.na))
+hist(apply(((biog[bos.aoi30m>800 & bos.lulc30m.lumped==6,8:1007]/1000)/biog[bos.aoi30m>800 & bos.lulc30m.lumped==6,bos.aoi30m/1E4]), MARGIN=2, FUN=med.na))
+
+## the quantile range of the median pixel values for NEE, split by LULC
+nee.meds <- rbind(quantile(apply(((biog[bos.aoi30m>800 & bos.lulc30m.lumped==1,8:1007]/1000)/biog[bos.aoi30m>800 & bos.lulc30m.lumped==1,bos.aoi30m/1E4]), MARGIN=2, FUN=med.na), probs=c(0.025, 0.5, 0.975)),
+                  quantile(apply(((biog[bos.aoi30m>800 & bos.lulc30m.lumped==2,8:1007]/1000)/biog[bos.aoi30m>800 & bos.lulc30m.lumped==2,bos.aoi30m/1E4]), MARGIN=2, FUN=med.na), probs=c(0.025, 0.5, 0.975)),
+                  quantile(apply(((biog[bos.aoi30m>800 & bos.lulc30m.lumped==3,8:1007]/1000)/biog[bos.aoi30m>800 & bos.lulc30m.lumped==3,bos.aoi30m/1E4]), MARGIN=2, FUN=med.na), probs=c(0.025, 0.5, 0.975)),
+                  quantile(apply(((biog[bos.aoi30m>800 & bos.lulc30m.lumped==4,8:1007]/1000)/biog[bos.aoi30m>800 & bos.lulc30m.lumped==4,bos.aoi30m/1E4]), MARGIN=2, FUN=med.na), probs=c(0.025, 0.5, 0.975)),
+                  quantile(apply(((biog[bos.aoi30m>800 & bos.lulc30m.lumped==5,8:1007]/1000)/biog[bos.aoi30m>800 & bos.lulc30m.lumped==5,bos.aoi30m/1E4]), MARGIN=2, FUN=med.na), probs=c(0.025, 0.5, 0.975)),
+                  quantile(apply(((biog[bos.aoi30m>800 & bos.lulc30m.lumped==6,8:1007]/1000)/biog[bos.aoi30m>800 & bos.lulc30m.lumped==6,bos.aoi30m/1E4]), MARGIN=2, FUN=med.na), probs=c(0.025, 0.5, 0.975)),
+                  quantile(apply(((biog[bos.aoi30m>800,8:1007]/1000)/biog[bos.aoi30m>800,bos.aoi30m/1E4]), MARGIN=2, FUN=med.na), probs=c(0.025, 0.5, 0.975))
+                  )
 nee.meds <- round(nee.meds, digits=2)
 
 nee.sum <- data.frame(cbind(c("Forest", "Dev", "HDRes", "LDRes", "OVeg", "Water", "Total"),
                  apply(nee.tots, FUN=paste.me, MARGIN=1),
                  apply(nee.meds, FUN=paste.me, MARGIN=1)))
 colnames(nee.sum) <- c("LULC", "mean.nee.GgC", "median.pix.nee.MgC-ha-yr")
-write.csv(nee.sum, "processed/results/nee.summary.V2.csv")
+write.csv(nee.sum, "processed/results/nee.summary.V3.csv")
 
 ### Version history
 ### V1: static grass NPP, no tree leaf C uptake
 ### V2: GAM error for total seasonal soil Resp, foliar and root NPP included in tree NPP
+### V3: grass literature error included, scaffold for error in assigning SoilR factors (but all set to V2 defaults)
 
 ## make some tifs
 aa <- raster("/projectnb/buultra/atrlica/BosBiog/processed/bos.aoi230m.tif")
 aa <- setValues(aa, biog[,nee.med])
-writeRaster(aa, "processed/results/nee.pixmed.V2.tif", format="GTiff", overwrite=T)
+writeRaster(aa, "processed/results/nee.pixmed.V3.tif", format="GTiff", overwrite=T)
 plot(aa)
 bb <- aa
 bb <- setValues(bb, biog[,nee.med.MgC.ha.yr])
-writeRaster(bb, "processed/results/nee.pixmed.MgC.ha.yr.V2.tif", format="GTiff", overwrite=T)
+writeRaster(bb, "processed/results/nee.pixmed.MgC.ha.yr.V3.tif", format="GTiff", overwrite=T)
 plot(bb)
 
 

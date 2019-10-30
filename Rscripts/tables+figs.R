@@ -11,7 +11,7 @@ med.na <- function(x){median(x, na.rm=T)}
 paste.me <- function(x){return(paste0(x[2], " (", x[1], "-", x[3], ")"))}
 
 ## NEE totals
-biog <- fread(file="processed/results/NEE.V2.csv")
+biog <- fread(file="processed/results/NEE.V3.csv")
 ## map-wide total by LULC
 nee.tots <- rbind(quantile(apply(biog[bos.aoi30m>800 & bos.lulc30m.lumped==1, 8:1007], FUN=sum.na, MARGIN=2)/1E6, probs=c(0.025, 0.5, 0.975)),
                   quantile(apply(biog[bos.aoi30m>800 & bos.lulc30m.lumped==2, 8:1007], FUN=sum.na, MARGIN=2)/1E6, probs=c(0.025, 0.5, 0.975)),
@@ -24,6 +24,17 @@ nee.tots <- round(nee.tots, 1)
 
 zoop <- apply(biog[bos.aoi30m>800,7:1008], FUN=med.na, MARGIN=1)
 summary(zoop) ## -44 to +54 25th-75th
+
+
+nee.meds <- rbind(quantile(apply(((biog[bos.aoi30m>800 & bos.lulc30m.lumped==1,8:1007]/1000)/biog[bos.aoi30m>800 & bos.lulc30m.lumped==1,bos.aoi30m/1E4]), MARGIN=2, FUN=med.na), probs=c(0.025, 0.5, 0.975)),
+                  quantile(apply(((biog[bos.aoi30m>800 & bos.lulc30m.lumped==2,8:1007]/1000)/biog[bos.aoi30m>800 & bos.lulc30m.lumped==2,bos.aoi30m/1E4]), MARGIN=2, FUN=med.na), probs=c(0.025, 0.5, 0.975)),
+                  quantile(apply(((biog[bos.aoi30m>800 & bos.lulc30m.lumped==3,8:1007]/1000)/biog[bos.aoi30m>800 & bos.lulc30m.lumped==3,bos.aoi30m/1E4]), MARGIN=2, FUN=med.na), probs=c(0.025, 0.5, 0.975)),
+                  quantile(apply(((biog[bos.aoi30m>800 & bos.lulc30m.lumped==4,8:1007]/1000)/biog[bos.aoi30m>800 & bos.lulc30m.lumped==4,bos.aoi30m/1E4]), MARGIN=2, FUN=med.na), probs=c(0.025, 0.5, 0.975)),
+                  quantile(apply(((biog[bos.aoi30m>800 & bos.lulc30m.lumped==5,8:1007]/1000)/biog[bos.aoi30m>800 & bos.lulc30m.lumped==5,bos.aoi30m/1E4]), MARGIN=2, FUN=med.na), probs=c(0.025, 0.5, 0.975)),
+                  quantile(apply(((biog[bos.aoi30m>800 & bos.lulc30m.lumped==6,8:1007]/1000)/biog[bos.aoi30m>800 & bos.lulc30m.lumped==6,bos.aoi30m/1E4]), MARGIN=2, FUN=med.na), probs=c(0.025, 0.5, 0.975)),
+                  quantile(apply(((biog[bos.aoi30m>800,8:1007]/1000)/biog[bos.aoi30m>800,bos.aoi30m/1E4]), MARGIN=2, FUN=med.na), probs=c(0.025, 0.5, 0.975))
+)
+nee.meds <- round(nee.meds, digits=2)
 
 
 ## Tree NPP totals
@@ -42,68 +53,120 @@ tree.tots <- round(tree.tots, 1)
 zoop <- apply(biog[bos.aoi30m>800,25:1024], FUN=med.na, MARGIN=1)
 summary(zoop) ## 10 to 292 25th-75th, 33 NAs
 
+tree.meds <- rbind(quantile(apply(((biog[bos.aoi30m>800 & bos.lulc30m.lumped==1,25:1024]/1000)/biog[bos.aoi30m>800 & bos.lulc30m.lumped==1,bos.aoi30m/1E4]), MARGIN=2, FUN=med.na), probs=c(0.025, 0.5, 0.975)),
+                  quantile(apply(((biog[bos.aoi30m>800 & bos.lulc30m.lumped==2,25:1024]/1000)/biog[bos.aoi30m>800 & bos.lulc30m.lumped==2,bos.aoi30m/1E4]), MARGIN=2, FUN=med.na), probs=c(0.025, 0.5, 0.975)),
+                  quantile(apply(((biog[bos.aoi30m>800 & bos.lulc30m.lumped==3,25:1024]/1000)/biog[bos.aoi30m>800 & bos.lulc30m.lumped==3,bos.aoi30m/1E4]), MARGIN=2, FUN=med.na), probs=c(0.025, 0.5, 0.975)),
+                  quantile(apply(((biog[bos.aoi30m>800 & bos.lulc30m.lumped==4,25:1024]/1000)/biog[bos.aoi30m>800 & bos.lulc30m.lumped==4,bos.aoi30m/1E4]), MARGIN=2, FUN=med.na), probs=c(0.025, 0.5, 0.975)),
+                  quantile(apply(((biog[bos.aoi30m>800 & bos.lulc30m.lumped==5,25:1024]/1000)/biog[bos.aoi30m>800 & bos.lulc30m.lumped==5,bos.aoi30m/1E4]), MARGIN=2, FUN=med.na), probs=c(0.025, 0.5, 0.975)),
+                  quantile(apply(((biog[bos.aoi30m>800 & bos.lulc30m.lumped==6,25:1024]/1000)/biog[bos.aoi30m>800 & bos.lulc30m.lumped==6,bos.aoi30m/1E4]), MARGIN=2, FUN=med.na), probs=c(0.025, 0.5, 0.975)),
+                  quantile(apply(((biog[bos.aoi30m>800,25:1024]/1000)/biog[bos.aoi30m>800,bos.aoi30m/1E4]), MARGIN=2, FUN=med.na), probs=c(0.025, 0.5, 0.975))
+)
+tree.meds <- round(tree.meds, digits=2)
+
 
 ## grass NPP totals
-biog <- fread("processed/results/grassNPP.results.V1.csv")
-grass.tots <- biog[bos.aoi>800, sum(grass.npp, na.rm=T)/1E6, by=bos.lulc]
-grass.all.tot <- biog[bos.aoi>800, sum(grass.npp, na.rm=T)/1E6]
+biog <- fread("processed/results/grassNPP.results.V2.csv")
+grass.tots <- rbind(quantile(apply(biog[bos.aoi30m>800 & bos.lulc30m.lumped==1, 6:1005], FUN=sum.na, MARGIN=2)/1E6, probs=c(0.025, 0.5, 0.975)),
+                   quantile(apply(biog[bos.aoi30m>800 & bos.lulc30m.lumped==2, 6:1005], FUN=sum.na, MARGIN=2)/1E6, probs=c(0.025, 0.5, 0.975)),
+                   quantile(apply(biog[bos.aoi30m>800 & bos.lulc30m.lumped==3, 6:1005], FUN=sum.na, MARGIN=2)/1E6, probs=c(0.025, 0.5, 0.975)),
+                   quantile(apply(biog[bos.aoi30m>800 & bos.lulc30m.lumped==4, 6:1005], FUN=sum.na, MARGIN=2)/1E6, probs=c(0.025, 0.5, 0.975)),
+                   quantile(apply(biog[bos.aoi30m>800 & bos.lulc30m.lumped==5, 6:1005], FUN=sum.na, MARGIN=2)/1E6, probs=c(0.025, 0.5, 0.975)),
+                   quantile(apply(biog[bos.aoi30m>800 & bos.lulc30m.lumped==6, 6:1005], FUN=sum.na, MARGIN=2)/1E6, probs=c(0.025, 0.5, 0.975)),
+                   quantile(apply(biog[bos.aoi30m>800, 6:1005], FUN=sum.na, MARGIN=2)/1E6, probs=c(0.025, 0.5, 0.975)))
+grass.tots <- round(grass.tots, 1)
+
+zoop <- apply(biog[bos.aoi30m>800,6:1005], FUN=med.na, MARGIN=1)
+summary(zoop) ## 0-111 1Q-3Q, 0 NAs
+
+grass.meds <- rbind(quantile(apply(((biog[bos.aoi30m>800 & bos.lulc30m.lumped==1,6:1005]/1000)/biog[bos.aoi30m>800 & bos.lulc30m.lumped==1,bos.aoi30m/1E4]), MARGIN=2, FUN=med.na), probs=c(0.025, 0.5, 0.975)),
+                   quantile(apply(((biog[bos.aoi30m>800 & bos.lulc30m.lumped==2,6:1005]/1000)/biog[bos.aoi30m>800 & bos.lulc30m.lumped==2,bos.aoi30m/1E4]), MARGIN=2, FUN=med.na), probs=c(0.025, 0.5, 0.975)),
+                   quantile(apply(((biog[bos.aoi30m>800 & bos.lulc30m.lumped==3,6:1005]/1000)/biog[bos.aoi30m>800 & bos.lulc30m.lumped==3,bos.aoi30m/1E4]), MARGIN=2, FUN=med.na), probs=c(0.025, 0.5, 0.975)),
+                   quantile(apply(((biog[bos.aoi30m>800 & bos.lulc30m.lumped==4,6:1005]/1000)/biog[bos.aoi30m>800 & bos.lulc30m.lumped==4,bos.aoi30m/1E4]), MARGIN=2, FUN=med.na), probs=c(0.025, 0.5, 0.975)),
+                   quantile(apply(((biog[bos.aoi30m>800 & bos.lulc30m.lumped==5,6:1005]/1000)/biog[bos.aoi30m>800 & bos.lulc30m.lumped==5,bos.aoi30m/1E4]), MARGIN=2, FUN=med.na), probs=c(0.025, 0.5, 0.975)),
+                   quantile(apply(((biog[bos.aoi30m>800 & bos.lulc30m.lumped==6,6:1005]/1000)/biog[bos.aoi30m>800 & bos.lulc30m.lumped==6,bos.aoi30m/1E4]), MARGIN=2, FUN=med.na), probs=c(0.025, 0.5, 0.975)),
+                   quantile(apply(((biog[bos.aoi30m>800,6:1005]/1000)/biog[bos.aoi30m>800,bos.aoi30m/1E4]), MARGIN=2, FUN=med.na), probs=c(0.025, 0.5, 0.975))
+)
+grass.meds <- round(grass.meds, digits=2)
+
 
 ## Soil R totals
-soilR <- fread("processed/soilR.results.V2.csv")
-library(raster)
-library(data.table)
-bos.aoi <- raster("processed/bos.aoi230m.tif")
-bos.isa <- raster("processed/bos.isa30m.tif") ## this is reprocessed from the RR2 1m file that was reregistered to road centerlines
-bos.lulc <- raster("processed/bos.lulc.lumped30m.tif")
-biog <- as.data.table(as.data.frame(bos.aoi))
-names(biog)[1] <- "bos.aoi30m"
-biog[,isa:=getValues(bos.isa)]
-# soilR.dat[,isa:=isa*bos.aoi30m] ## everything is now in m2 of stuff per pixel (0-900)
-# hist(soilR.dat[,isa]) ## ok
-biog[,bos.lulc30m.lumped:=getValues(bos.lulc)]
-biog[,pix.ID:=seq(1:dim(biog)[1])]
-biog <- merge(biog, soilR, by="pix.ID")
-
-## map-wide total by LULC
-soil.tots <- rbind(quantile(apply(biog[bos.aoi30m>800 & bos.lulc30m.lumped==1, 5:1004], FUN=sum.na, MARGIN=2)/1E6, probs=c(0.025, 0.5, 0.975)),
-                   quantile(apply(biog[bos.aoi30m>800 & bos.lulc30m.lumped==2, 5:1004], FUN=sum.na, MARGIN=2)/1E6, probs=c(0.025, 0.5, 0.975)),
-                   quantile(apply(biog[bos.aoi30m>800 & bos.lulc30m.lumped==3, 5:1004], FUN=sum.na, MARGIN=2)/1E6, probs=c(0.025, 0.5, 0.975)),
-                   quantile(apply(biog[bos.aoi30m>800 & bos.lulc30m.lumped==4, 5:1004], FUN=sum.na, MARGIN=2)/1E6, probs=c(0.025, 0.5, 0.975)),
-                   quantile(apply(biog[bos.aoi30m>800 & bos.lulc30m.lumped==5, 5:1004], FUN=sum.na, MARGIN=2)/1E6, probs=c(0.025, 0.5, 0.975)),
-                   quantile(apply(biog[bos.aoi30m>800 & bos.lulc30m.lumped==6, 5:1004], FUN=sum.na, MARGIN=2)/1E6, probs=c(0.025, 0.5, 0.975)),
-                   quantile(apply(biog[bos.aoi30m>800, 5:1004], FUN=sum.na, MARGIN=2)/1E6, probs=c(0.025, 0.5, 0.975)))
+biog <- fread("processed/results/soilR.results.V2.csv")
+names(biog)[c(2,4)] <- c("bos.aoi30m", "bos.lulc30m.lumped")
+soil.tots <- rbind(quantile(apply(biog[bos.aoi30m>800 & bos.lulc30m.lumped==1, 23:1022], FUN=sum.na, MARGIN=2)/1E6, probs=c(0.025, 0.5, 0.975)),
+                   quantile(apply(biog[bos.aoi30m>800 & bos.lulc30m.lumped==2, 23:1022], FUN=sum.na, MARGIN=2)/1E6, probs=c(0.025, 0.5, 0.975)),
+                   quantile(apply(biog[bos.aoi30m>800 & bos.lulc30m.lumped==3, 23:1022], FUN=sum.na, MARGIN=2)/1E6, probs=c(0.025, 0.5, 0.975)),
+                   quantile(apply(biog[bos.aoi30m>800 & bos.lulc30m.lumped==4, 23:1022], FUN=sum.na, MARGIN=2)/1E6, probs=c(0.025, 0.5, 0.975)),
+                   quantile(apply(biog[bos.aoi30m>800 & bos.lulc30m.lumped==5, 23:1022], FUN=sum.na, MARGIN=2)/1E6, probs=c(0.025, 0.5, 0.975)),
+                   quantile(apply(biog[bos.aoi30m>800 & bos.lulc30m.lumped==6, 23:1022], FUN=sum.na, MARGIN=2)/1E6, probs=c(0.025, 0.5, 0.975)),
+                   quantile(apply(biog[bos.aoi30m>800, 23:1022], FUN=sum.na, MARGIN=2)/1E6, probs=c(0.025, 0.5, 0.975)))
 soil.tots <- round(soil.tots, 1)
 
-zoop <- apply(biog[bos.aoi30m>800,5:1004], FUN=med.na, MARGIN=1)
+zoop <- apply(biog[bos.aoi30m>800,23:1022], FUN=med.na, MARGIN=1)
 summary(zoop) ## 6 to 459 25th-75th, 0 NAs
 
-### package up into a single table and write
+soil.meds <- rbind(quantile(apply(((biog[bos.aoi30m>800 & bos.lulc30m.lumped==1,23:1022]/1000)/biog[bos.aoi30m>800 & bos.lulc30m.lumped==1,bos.aoi30m/1E4]), MARGIN=2, FUN=med.na), probs=c(0.025, 0.5, 0.975)),
+                    quantile(apply(((biog[bos.aoi30m>800 & bos.lulc30m.lumped==2,23:1022]/1000)/biog[bos.aoi30m>800 & bos.lulc30m.lumped==2,bos.aoi30m/1E4]), MARGIN=2, FUN=med.na), probs=c(0.025, 0.5, 0.975)),
+                    quantile(apply(((biog[bos.aoi30m>800 & bos.lulc30m.lumped==3,23:1022]/1000)/biog[bos.aoi30m>800 & bos.lulc30m.lumped==3,bos.aoi30m/1E4]), MARGIN=2, FUN=med.na), probs=c(0.025, 0.5, 0.975)),
+                    quantile(apply(((biog[bos.aoi30m>800 & bos.lulc30m.lumped==4,23:1022]/1000)/biog[bos.aoi30m>800 & bos.lulc30m.lumped==4,bos.aoi30m/1E4]), MARGIN=2, FUN=med.na), probs=c(0.025, 0.5, 0.975)),
+                    quantile(apply(((biog[bos.aoi30m>800 & bos.lulc30m.lumped==5,23:1022]/1000)/biog[bos.aoi30m>800 & bos.lulc30m.lumped==5,bos.aoi30m/1E4]), MARGIN=2, FUN=med.na), probs=c(0.025, 0.5, 0.975)),
+                    quantile(apply(((biog[bos.aoi30m>800 & bos.lulc30m.lumped==6,23:1022]/1000)/biog[bos.aoi30m>800 & bos.lulc30m.lumped==6,bos.aoi30m/1E4]), MARGIN=2, FUN=med.na), probs=c(0.025, 0.5, 0.975)),
+                    quantile(apply(((biog[bos.aoi30m>800,23:1022]/1000)/biog[bos.aoi30m>800,bos.aoi30m/1E4]), MARGIN=2, FUN=med.na), probs=c(0.025, 0.5, 0.975))
+)
+soil.meds <- round(soil.meds, digits=2)
+
+
+### package up into a single table (x2) and write
 tree.tots <- as.data.frame(tree.tots)
 tree.tots$LULC <- c("Forest", "Developed", "HD Resid.", "LD Resid.", "Other Veg.", "Water", "Total")
 soil.tots <- as.data.frame(soil.tots)
 soil.tots$LULC <- c("Forest", "Developed", "HD Resid.", "LD Resid.", "Other Veg.", "Water", "Total")
 nee.tots <- as.data.frame(nee.tots)
 nee.tots$LULC <- c("Forest", "Developed", "HD Resid.", "LD Resid.", "Other Veg.", "Water", "Total")
-grass.tots <- grass.tots[order(bos.lulc),]
 grass.tots <- as.data.frame(grass.tots)
-grass.tots[7,2] <- round(grass.all.tot, 1)
 grass.tots$LULC <- c("Forest", "Developed", "HD Resid.", "LD Resid.", "Other Veg.", "Water", "Total")
+
+tree.meds <- as.data.frame(tree.meds)
+tree.meds$LULC <- c("Forest", "Developed", "HD Resid.", "LD Resid.", "Other Veg.", "Water", "Total")
+soil.meds <- as.data.frame(soil.meds)
+soil.meds$LULC <- c("Forest", "Developed", "HD Resid.", "LD Resid.", "Other Veg.", "Water", "Total")
+nee.meds <- as.data.frame(nee.meds)
+nee.meds$LULC <- c("Forest", "Developed", "HD Resid.", "LD Resid.", "Other Veg.", "Water", "Total")
+grass.meds <- as.data.frame(grass.meds)
+grass.meds$LULC <- c("Forest", "Developed", "HD Resid.", "LD Resid.", "Other Veg.", "Water", "Total")
 
 nicely <- function(x){
   d <- paste0(x[2], " (", x[1], "-", x[3], ")")
   return(d)
 }
-nicely(c("a", "b", "c"))
 nee.tots$fin <- apply(nee.tots[,1:3], MARGIN = 1, FUN=nicely)
 tree.tots$fin <- apply(tree.tots[,1:3], MARGIN = 1, FUN=nicely)
 soil.tots$fin <- apply(soil.tots[,1:3], MARGIN = 1, FUN=nicely)
+grass.tots$fin <- apply(grass.tots[,1:3], MARGIN = 1, FUN=nicely)
 
-fin <- merge(tree.tots[, c("LULC", "fin")], soil.tots[,c("LULC", "fin")], by="LULC")
-fin <- merge(fin, grass.tots[,c("LULC", "V1")], by="LULC")
+fin <- merge(tree.tots[, c("LULC", "fin")], grass.tots[,c("LULC", "fin")], by="LULC")
+fin <- merge(fin, soil.tots[,c("LULC", "fin")], by="LULC")
 fin <- merge(fin,  nee.tots[,c("LULC", "fin")], by="LULC")
-colnames(fin) <- c("LULC", "NPP.tree", "SoilR", "NPP.grass", "NEE")
-write.csv(fin, "processed/results/TABLE1_NEE-comps-by-LULC.csv")
+colnames(fin) <- c("LULC", "NPP.tree.GgC", "NPP.grass.GgC", "SoilR.GgC", "NEE.GgC")
+fin <- cbind(c(2,1,3,4,5,7,6), fin)
+fin <- fin[order(fin[,1]),-1]
+write.csv(fin, "processed/results/TABLE1_NEE-GgCyr-comps-by-LULC.csv")
+
+nee.meds$fin <- apply(nee.meds[,1:3], MARGIN = 1, FUN=nicely)
+tree.meds$fin <- apply(tree.meds[,1:3], MARGIN = 1, FUN=nicely)
+soil.meds$fin <- apply(soil.meds[,1:3], MARGIN = 1, FUN=nicely)
+grass.meds$fin <- apply(grass.meds[,1:3], MARGIN = 1, FUN=nicely)
+
+fin <- merge(tree.meds[, c("LULC", "fin")], grass.meds[,c("LULC", "fin")], by="LULC")
+fin <- merge(fin, soil.meds[,c("LULC", "fin")], by="LULC")
+fin <- merge(fin,  nee.meds[,c("LULC", "fin")], by="LULC")
+colnames(fin) <- c("LULC", "NPP.tree.MgCha", "NPP.grass.MgCha", "SoilR.MgCha", "NEE.MgCha")
+fin <- cbind(c(2,1,3,4,5,7,6), fin)
+fin <- fin[order(fin[,1]),-1]
+write.csv(fin, "processed/results/TABLE1_NEE-MgCha-comps-by-LULC.csv")
+
 #####
+
+
 
 ### TABLE S1 -- fractional areas
 #####
@@ -312,7 +375,7 @@ sum.na <- function(x){sum(x, na.rm=T)}
 med.na <- function(x){median(x, na.rm=T)}
 
 ## NEE totals
-bdat.fin <- fread(file="processed/results/NEE.V2.csv")
+bdat.fin <- fread(file="processed/results/NEE.V3.csv")
 bdat.fin[,pix.med:=apply(bdat.fin[, 8:1009], FUN=med.na, MARGIN=1)]
 bdat.fin <- bdat.fin[!is.na(bos.lulc30m.lumped) & !is.na(bos.aoi30m) & bos.aoi30m>800,]
 summary(bdat.fin$pix.med) ## this is good, no missing values
@@ -381,11 +444,12 @@ dev.off()
 ### Figure 2: Panel of pixel median vs. EVI w GAM fits
 #####
 library(raster)
-evi <- raster("H:/FragEVI/processed/EVI/030005-6_2010-2012_EVI.tif")
+# evi <- raster("H:/FragEVI/processed/EVI/030005-6_2010-2012_EVI.tif")
+evi <- raster("/projectnb/buultra/atrlica/FragEVI/processed/EVI/030005-6_2010-2012_EVI.tif")
 aoi <- raster("processed/bos.aoi230m.tif")
 evi <- projectRaster(from=evi, to = aoi, method="bilinear")
 evi <- crop(evi, aoi)
-biog <- fread(file="processed/results/NEE.V2.csv")
+biog <- fread(file="processed/results/NEE.V3.csv")
 biog[,evi:=getValues(evi)]
 
 library(viridis)
@@ -440,7 +504,7 @@ ggplot.4
 ggplot.5
 
 nee.hist <- ggplot(biog[bos.aoi30m>800 & !is.na(bos.lulc30m.lumped),], aes(x=nee.med.MgC.ha.yr))+
-              geom_histogram(bins=100)+
+              geom_histogram(bins=50)+
               theme.master+
               labs(x = "Median pixel NEE (MgC/ha/yr)", y="")+
               guides(fill=FALSE)
