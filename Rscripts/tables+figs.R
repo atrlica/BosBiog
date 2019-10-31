@@ -37,6 +37,50 @@ nee.meds <- rbind(quantile(apply(((biog[bos.aoi30m>800 & bos.lulc30m.lumped==1,8
 nee.meds <- round(nee.meds, digits=2)
 
 
+nee.tots.MgCha <- rbind(quantile((apply(biog[bos.aoi30m>800 & bos.lulc30m.lumped==1, 
+                                             8:1007], 
+                                        FUN=sum.na, MARGIN=2)/1E3)/
+                                   sum.na(biog[bos.aoi30m>800 & bos.lulc30m.lumped==1,
+                                               bos.aoi30m]/1E4), probs=c(0.025, 0.5, 0.975)),
+                        quantile((apply(biog[bos.aoi30m>800 & bos.lulc30m.lumped==2, 
+                                             8:1007], 
+                                        FUN=sum.na, MARGIN=2)/1E3)/
+                                   sum.na(biog[bos.aoi30m>800 & bos.lulc30m.lumped==2,
+                                               bos.aoi30m]/1E4), probs=c(0.025, 0.5, 0.975)),
+                        quantile((apply(biog[bos.aoi30m>800 & bos.lulc30m.lumped==3, 
+                                             8:1007], 
+                                        FUN=sum.na, MARGIN=2)/1E3)/
+                                   sum.na(biog[bos.aoi30m>800 & bos.lulc30m.lumped==3,
+                                               bos.aoi30m]/1E4), probs=c(0.025, 0.5, 0.975)),
+                        quantile((apply(biog[bos.aoi30m>800 & bos.lulc30m.lumped==4, 
+                                             8:1007], 
+                                        FUN=sum.na, MARGIN=2)/1E3)/
+                                   sum.na(biog[bos.aoi30m>800 & bos.lulc30m.lumped==4,
+                                               bos.aoi30m]/1E4), probs=c(0.025, 0.5, 0.975)),
+                        quantile((apply(biog[bos.aoi30m>800 & bos.lulc30m.lumped==5, 
+                                             8:1007], 
+                                        FUN=sum.na, MARGIN=2)/1E3)/
+                                   sum.na(biog[bos.aoi30m>800 & bos.lulc30m.lumped==5,
+                                               bos.aoi30m]/1E4), probs=c(0.025, 0.5, 0.975)),
+                        quantile((apply(biog[bos.aoi30m>800 & bos.lulc30m.lumped==6, 
+                                             8:1007], 
+                                        FUN=sum.na, MARGIN=2)/1E3)/
+                                   sum.na(biog[bos.aoi30m>800 & bos.lulc30m.lumped==6,
+                                               bos.aoi30m]/1E4), probs=c(0.025, 0.5, 0.975)),
+                        quantile((apply(biog[bos.aoi30m>800, 
+                                             8:1007], 
+                                        FUN=sum.na, MARGIN=2)/1E3)/
+                                   sum.na(biog[bos.aoi30m>800,
+                                               bos.aoi30m]/1E4), probs=c(0.025, 0.5, 0.975))
+                        )
+
+                      
+                        
+nee.tots.MgCha <- round(nee.tots.MgCha, 2)
+
+-2.7*biog[bos.aoi30m>800 & bos.lulc30m.lumped==1, sum.na(bos.aoi30m)]/1E4
+-0.4*biog[bos.aoi30m>800 & bos.lulc30m.lumped==2, sum.na(bos.aoi30m)]/1E4
+
 ## Tree NPP totals
 biog <- fread("processed/results/hybrid.TOTAL.results.V8.csv")
 biog[,25:1024] <- biog[,25:1024]/2 ## be careful, these are coming in as kgBIOMASS not kgC
