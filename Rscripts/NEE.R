@@ -217,6 +217,69 @@ hist(biog[bos.aoi30m>800 & nee.med>(100) & bos.lulc30m.lumped==1, bos.isa30m]) #
 hist(biog[bos.aoi30m>800 & nee.med>(100) & bos.lulc30m.lumped==1, bos.can.redux30m]) ## eother little or total canopy
 hist(biog[bos.aoi30m>800 & nee.med>(100) & bos.lulc30m.lumped==1, bos.biom30m]) ## low biomass
 
+## portions of pixels that have sinks/sources, summaries
+pix.tot <- biog[bos.aoi30m>800, length(nee.med)]
+hist(biog[bos.aoi30m>800 & nee.med.MgC.ha<0, nee.med.MgC.ha])
+summary(biog[bos.aoi30m>800, nee.med.MgC.ha.yr])
+quantile(biog[bos.aoi30m>800, nee.med.MgC.ha.yr], probs=c(0.025, 0.5, 0.975), na.rm=T)
+# DEV
+biog[bos.aoi30m>800 & 
+             bos.lulc30m.lumped==2 &
+             nee.med.MgC.ha.yr<=(0)&
+             nee.med.MgC.ha.yr>=(-1), length(nee.med)]/
+        biog[bos.aoi30m>800 & 
+                     bos.lulc30m.lumped==2, length(nee.med)]
+hist(biog[bos.aoi30m>800 & 
+             bos.lulc30m.lumped==2, nee.med.MgC.ha.yr])
+range(biog[bos.aoi30m>800 & 
+             bos.lulc30m.lumped==2, nee.med.MgC.ha.yr], na.rm=T) #-10.6 to 6.46
+ 
+# OVEG
+biog[bos.aoi30m>800 & 
+             bos.lulc30m.lumped==5 &
+             nee.med.MgC.ha.yr<=(0)&
+             nee.med.MgC.ha.yr>=(-1), length(nee.med)]/
+        biog[bos.aoi30m>800 & 
+                     bos.lulc30m.lumped==5, length(nee.med)]
+hist(biog[bos.aoi30m>800 & 
+                  bos.lulc30m.lumped==5, nee.med.MgC.ha.yr])
+range(biog[bos.aoi30m>800 & 
+                   bos.lulc30m.lumped==5, nee.med.MgC.ha.yr], na.rm=T) #-8.6 to 5.7
+
+## RESIDENTIAL
+biog[bos.aoi30m>800 & 
+             bos.lulc30m.lumped%in%c(3,4) &
+             nee.med.MgC.ha.yr<=(0)&
+             nee.med.MgC.ha.yr>=(-1), length(nee.med)]/
+        biog[bos.aoi30m>800 & 
+                     bos.lulc30m.lumped%in%c(3,4), length(nee.med)]
+biog[bos.aoi30m>800 & 
+             bos.lulc30m.lumped%in%c(3,4) &
+             nee.med.MgC.ha.yr>=(0), length(nee.med)]/
+        biog[bos.aoi30m>800 & 
+                     bos.lulc30m.lumped%in%c(3,4), length(nee.med)]
+biog[bos.aoi30m>800 & 
+             bos.lulc30m.lumped%in%c(3,4) &
+             nee.med.MgC.ha.yr>=(5), length(nee.med)]/
+        biog[bos.aoi30m>800 & 
+                     bos.lulc30m.lumped%in%c(3,4), length(nee.med)]
+hist(biog[bos.aoi30m>800 & 
+                  bos.lulc30m.lumped%in%c(3,4), nee.med.MgC.ha.yr])
+range(biog[bos.aoi30m>800 & 
+                   bos.lulc30m.lumped%in%c(3,4), nee.med.MgC.ha.yr], na.rm=T) #-8.6 to 5.7
+
+
+## FOREST
+biog[bos.aoi30m>800 & 
+             bos.lulc30m.lumped==1 &
+             nee.med.MgC.ha.yr<=(0), length(nee.med)]/
+        biog[bos.aoi30m>800 & 
+                     bos.lulc30m.lumped==1, length(nee.med)]
+hist(biog[bos.aoi30m>800 & 
+                  bos.lulc30m.lumped==1, nee.med.MgC.ha.yr])
+range(biog[bos.aoi30m>800 & 
+                   bos.lulc30m.lumped==1, nee.med.MgC.ha.yr], na.rm=T) #-10.1 to 5.5
+
 
 
 ## linear effects with other pixel factors
@@ -387,5 +450,5 @@ summary(crc.dat$eff)
 crc.dat[,eff.MgC:=eff/1000]
 ## max according to metadata is 4420E06 kgC = 4.42 E03 MgC
 hist(crc.dat$eff.MgC) ### we are up to 120k, ok these look valid-ish
-sum(crc.dat$eff.MgC, na.rm=T)/1E3 ## 1289 GgC/yr
+sum(crc.dat$eff.MgC, na.rm=T) ## 1289 GgC/yr
                          

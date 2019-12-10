@@ -217,6 +217,12 @@ nicely2 <- function(x,y,z){
   return(paste0(round(x, 2), " (", round(y,2), "-", round(z,2), ")"))
 }
 
+F.dat[, Fol.ratio:=F.dat[, pix.med]/TOT.dat[,pix.med]]
+summary(F.dat[bos.aoi30m>800, Fol.ratio])
+quantile(F.dat[bos.aoi30m>800 & bos.biom30m>10, Fol.ratio], 
+         probs=c(0.025, 0.5, 0.975), na.rm=T)
+
+
 npp.fin <- data.frame(c("Forest", "Dev", "HDR", "LDR", "OVeg", "Water", "Total"))
 quants <- c(0.025, 0.5, 0.975)
 holdem <- list()
